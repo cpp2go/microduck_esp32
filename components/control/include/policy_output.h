@@ -5,8 +5,6 @@
 // raw actions (before action_scale), matching robotd last_action feedback.
 #pragma once
 
-#include <cstddef>
-
 #ifdef __cplusplus
 extern "C" {
 #endif

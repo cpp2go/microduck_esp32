@@ -1,6 +1,6 @@
 # 视觉 / 声音移植说明（ESP32-P4）
 
-对照原版 [pollen-robotics/microduck](https://github.com/pollen-robotics/microduck)。**不**对照其它 ESP 移植。
+对照原版 [pollen-robotics/microduck](https://github.com/pollen-robotics/microduck)。
 
 ## 声音（ES8311 + NS4150B）
 

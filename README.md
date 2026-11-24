@@ -8,7 +8,7 @@ Microduck 在嵌入式侧拆成两颗芯片 + Linux 训练：
 
 ## 与原版 pollen-robotics/microduck 的对齐
 
-对照真机路径 [`robotd` + `duck-control`](https://github.com/pollen-robotics/microduck)（**不是**其它 ESP 移植）。本仓库硬件选型与原版不同，观测/控制契约对齐：
+对照真机路径 [`robotd` + `duck-control`](https://github.com/pollen-robotics/microduck)。本仓库硬件选型与原版不同，观测/控制契约对齐：
 
 | 项目 | 原版 | microduck_esp32 |
 |------|------|-----------------|
