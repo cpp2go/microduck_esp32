@@ -95,7 +95,7 @@ int main() {
     }
     clock_gettime(CLOCK_MONOTONIC, &t1);
     double us = (t1.tv_sec - t0.tv_sec) * 1e6 + (t1.tv_nsec - t0.tv_nsec) / 1e3;
-    printf("host timing: %.1f us/forward (informational, not an S3 number)\n",
+    printf("host timing: %.1f us/forward (informational — production runs on ESP32-P4)\n",
            us / iters);
 
     free(ws);

@@ -14,8 +14,9 @@ menu "Microduck IMU (BMI270)"
         default 2
         depends on MICRODUCK_IMU_ENABLE
         help
-            I2C data line for the BMI270. esp-duck hard-wires CoreS3 GPIO12/11;
-            set these to match your ESP32-P4 Microduck carrier.
+            I2C data line for the BMI270 on the ESP32-P4 carrier.
+            Original microduck reads IMU from imu_to_dxl@200 on the Dynamixel bus;
+            this firmware uses a local BMI270 until that path is wired.
 
     config MICRODUCK_IMU_SCL_GPIO
         int "I2C SCL GPIO"

@@ -40,4 +40,20 @@ menu "Microduck P4 ← C5 command link"
             default 18
     endmenu
 
+    config MICRODUCK_CMD_ALPHA
+        int "Twist command EMA alpha × 1000 (robotd cmd_alpha, default 0.2)"
+        range 1 1000
+        default 200
+        help
+            Per-tick EMA on twist: cmd += alpha * (target - cmd). Matches
+            pollen-robotics/microduck [control] cmd_alpha.
+
+    config MICRODUCK_CMD_HEAD_ALPHA
+        int "Head/body command EMA alpha × 1000 (robotd head_alpha, default 0.2)"
+        range 1 1000
+        default 200
+        help
+            Per-tick EMA on head targets and body pose. Matches
+            pollen-robotics/microduck [control] head_alpha.
+
 endmenu

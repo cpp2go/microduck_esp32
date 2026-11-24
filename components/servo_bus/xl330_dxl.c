@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: MIT
+//
+// Protocol 2.0 XL330 helpers aligned with pollen-robotics/microduck duck-control/src/bus.rs:
+// one SyncRead of the 12-byte block at Present PWM (124) → current/vel/pos, and the same
+// radian ↔ raw conversion (2π·raw/4096 − π).
 
 #include "xl330_dxl.h"
 
+#include <math.h>
 #include <string.h>
 
 #include "driver/gpio.h"
@@ -10,6 +15,10 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "sdkconfig.h"
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 #define DXL_HDR0 0xFF
 #define DXL_HDR1 0xFF
@@ -22,19 +31,23 @@
 #define INST_SYNC_READ 0x82
 #define INST_SYNC_WRITE 0x83
 
-#define ADDR_TORQUE_ENABLE 64
+#define ADDR_RETURN_DELAY 9
 #define ADDR_OPERATING_MODE 11
+#define ADDR_CURRENT_LIMIT 38
+#define ADDR_TORQUE_ENABLE 64
 #define ADDR_POS_P_GAIN 84
 #define ADDR_GOAL_POSITION 116
-#define ADDR_PRESENT_VELOCITY 128
-#define ADDR_PRESENT_POSITION 132
+/** Contiguous Present PWM / current / velocity / position — duck-control bus.rs READ_ADDR. */
+#define ADDR_PRESENT_BLOCK 124
+#define PRESENT_BLOCK_LEN 12
 
 #define MODE_POSITION 3
+#define CURRENT_LIMIT_MA 1000
 
 static const char *kTag = "xl330";
 static bool s_up = false;
 
-static const float kRadPerUnit = (0.088f * (float)M_PI / 180.0f);
+/// 0.229 rev/min per count → rad/s (same as duck-control RAD_PER_SEC_PER_COUNT).
 static const float kVelRadPerUnit = (0.229f * 2.0f * (float)M_PI / 60.0f);
 
 static uint16_t dxl_crc16(const uint8_t *data, uint16_t len)
@@ -179,7 +192,14 @@ bool xl330_configure_servo(uint8_t id, uint16_t position_p_gain)
     if (!write_u8(id, ADDR_TORQUE_ENABLE, 0)) {
         return false;
     }
+    /* EXPECTED_REGISTERS in duck-control/model.rs — factory 250 µs×2 turnaround eats the 20 ms tick. */
+    if (!write_u8(id, ADDR_RETURN_DELAY, 0)) {
+        return false;
+    }
     if (!write_u8(id, ADDR_OPERATING_MODE, MODE_POSITION)) {
+        return false;
+    }
+    if (!write_u16(id, ADDR_CURRENT_LIMIT, CURRENT_LIMIT_MA)) {
         return false;
     }
     if (!write_u16(id, ADDR_POS_P_GAIN, position_p_gain)) {
@@ -190,51 +210,45 @@ bool xl330_configure_servo(uint8_t id, uint16_t position_p_gain)
 
 int32_t xl330_rad_to_position_int(float rad)
 {
-    return (int32_t)((rad * 180.0f / (float)M_PI) / 0.088f);
+    /* Inverse of (2π·raw/4096) − π — matches duck-control bus.rs tests. */
+    return (int32_t)lroundf(4096.0f * ((float)M_PI + rad) / (2.0f * (float)M_PI));
 }
 
-float xl330_position_unit_to_rad(int32_t unit) { return (float)unit * kRadPerUnit; }
+float xl330_position_unit_to_rad(int32_t unit)
+{
+    return (2.0f * (float)M_PI * (float)unit / 4096.0f) - (float)M_PI;
+}
 
 float xl330_velocity_unit_to_rad_s(int32_t unit) { return (float)unit * kVelRadPerUnit; }
 
-static bool sync_read_u32(uint16_t addr, const uint8_t *ids, int n, int32_t *out)
+bool xl330_sync_read_pv(const uint8_t *ids, int n, float *pos_rad, float *vel_rad_s)
 {
+    /* One SyncRead of the 12-byte Present block (PWM+current+vel+pos), same layout as robotd. */
     uint8_t param[4 + 32];
-    param[0] = (uint8_t)(addr & 0xFF);
-    param[1] = (uint8_t)(addr >> 8);
-    param[2] = 4;
+    param[0] = (uint8_t)(ADDR_PRESENT_BLOCK & 0xFF);
+    param[1] = (uint8_t)(ADDR_PRESENT_BLOCK >> 8);
+    param[2] = PRESENT_BLOCK_LEN;
     param[3] = 0;
     for (int i = 0; i < n; ++i) {
         param[4 + i] = ids[i];
     }
     tx_packet(DXL_BROADCAST, INST_SYNC_READ, param, (uint16_t)(4 + n));
     for (int i = 0; i < n; ++i) {
-        uint8_t buf[32];
-        if (rx_packet(buf, sizeof(buf), 15) < 0) {
+        uint8_t buf[48];
+        if (rx_packet(buf, sizeof(buf), 20) < 0) {
             return false;
         }
         if (buf[3] != ids[i]) {
             return false;
         }
-        out[i] = (int32_t)((uint32_t)buf[8] | ((uint32_t)buf[9] << 8) | ((uint32_t)buf[10] << 16) |
-                           ((uint32_t)buf[11] << 24));
-    }
-    return true;
-}
-
-bool xl330_sync_read_pv(const uint8_t *ids, int n, float *pos_rad, float *vel_rad_s)
-{
-    int32_t vel_i[32];
-    int32_t pos_i[32];
-    if (!sync_read_u32(ADDR_PRESENT_VELOCITY, ids, n, vel_i)) {
-        return false;
-    }
-    if (!sync_read_u32(ADDR_PRESENT_POSITION, ids, n, pos_i)) {
-        return false;
-    }
-    for (int i = 0; i < n; ++i) {
-        vel_rad_s[i] = xl330_velocity_unit_to_rad_s(vel_i[i]);
-        pos_rad[i] = xl330_position_unit_to_rad(pos_i[i]);
+        /* Status: [7]=err, [8..19]=12-byte block. Offsets match bus.rs decode. */
+        const uint8_t *block = buf + 8;
+        int32_t velocity = (int32_t)((uint32_t)block[4] | ((uint32_t)block[5] << 8) |
+                                     ((uint32_t)block[6] << 16) | ((uint32_t)block[7] << 24));
+        int32_t position = (int32_t)((uint32_t)block[8] | ((uint32_t)block[9] << 8) |
+                                     ((uint32_t)block[10] << 16) | ((uint32_t)block[11] << 24));
+        vel_rad_s[i] = xl330_velocity_unit_to_rad_s(velocity);
+        pos_rad[i] = xl330_position_unit_to_rad(position);
     }
     return true;
 }

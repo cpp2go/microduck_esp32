@@ -33,6 +33,9 @@ CONFIG_ESP_HOSTED_HOST_FEAT_PEER_DATA=y
 
 # ── Command link: SDIO peer-data (not UART) ─────────────────────────────────
 CONFIG_MICRODUCK_CMD_SDIO_ENABLE=y
+# robotd [control] defaults
+CONFIG_MICRODUCK_CMD_ALPHA=200
+CONFIG_MICRODUCK_CMD_HEAD_ALPHA=200
 
 # ── Compiler / WDT ──────────────────────────────────────────────────────────
 CONFIG_COMPILER_OPTIMIZATION_PERF=y

@@ -97,6 +97,21 @@ bool servo_bus_init(void)
         s_prev_goal[j] = MICRODUCK_HOME_POSE[j];
     }
     s_state.torque_enabled = true;
+    /* robotd Controller::seed_from_pose — last_action = gather(pose − home) so tick 0 is continuous. */
+    float pos0[MICRODUCK_NUM_JOINTS];
+    float vel0[MICRODUCK_NUM_JOINTS];
+    if (xl330_sync_read_pv(MICRODUCK_JOINT_IDS, MICRODUCK_NUM_JOINTS, pos0, vel0)) {
+        float offsets[MICRODUCK_NUM_JOINTS];
+        for (int j = 0; j < MICRODUCK_NUM_JOINTS; ++j) {
+            s_state.pos_rad[j] = pos0[j];
+            s_state.vel_rad_s[j] = vel0[j];
+            s_state.pos_rel[j] = pos0[j] - MICRODUCK_HOME_POSE[j];
+            offsets[j] = s_state.pos_rel[j];
+            s_prev_goal[j] = pos0[j];
+        }
+        microduck_policy_joints_from_phys(offsets, s_state.last_policy_action);
+        s_state.read_ok++;
+    }
     ESP_LOGI(
         kTag, "%d/%d XL330 online (alpha IDs), kp=%d, action_scale=%.3f head_lp=%.2f leg_lp=%.2f", ok,
         MICRODUCK_NUM_JOINTS, CONFIG_MICRODUCK_SERVO_POSITION_KP, (double)s_action_scale, (double)s_head_alpha,
@@ -141,7 +156,12 @@ bool servo_bus_poll(servo_state_t *out)
         s_state.read_fail++;
         if (s_fail_streak >= CONFIG_MICRODUCK_SERVO_FAIL_LIMIT) {
             ESP_LOGE(kTag, "bus fault — torque disabled");
-            s_state.torque_enabled = false;
+            xSemaphoreGive(s_mux);
+            servo_bus_torque_enable(false);
+            if (out) {
+                servo_bus_get_state(out);
+            }
+            return false;
         }
     }
     if (out) {

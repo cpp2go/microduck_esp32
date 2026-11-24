@@ -113,12 +113,11 @@ bool GoldenSelfTest(const duck::Model &model, QMetrics *worst_rand,
 }
 
 // ---------------------------------------------------------------------------
-// 50 Hz inference loop
+// 50 Hz inference loop (on-device INT8 — same role as robotd + duck-control)
 // ---------------------------------------------------------------------------
-// The IMU channels (gyro, projected gravity) are REAL when imu::Init() succeeds.
-// The 42 joint/last-action channels stay synthetic until
-// servos exist: the point of the loop is timing and end-to-end plumbing, and
-// no servo is driven by anything here.
+// Order matches pollen-robotics/microduck robotd Controller::step:
+//   IMU → XL330 SyncRead proprio → cmd block → INT8 policy → SyncWrite goals.
+// Inference runs entirely on ESP32-P4 (baked duck_policy); host only bakes/tests.
 struct LoopStats {
     std::atomic<bool> running{false};
     std::atomic<int64_t> min_us{INT64_MAX}; // fastest pass in the window

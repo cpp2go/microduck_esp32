@@ -2,11 +2,13 @@
 
 | 位置 | 职责 |
 |------|------|
-| Linux `microduck_rl` | 训练、ONNX、bake |
-| **ESP32-P4** | 50 Hz 策略、IMU、动作 |
+| Linux `microduck_rl` | 训练、ONNX 导出、bake（主机工具） |
+| **ESP32-P4** | **板端** 50 Hz INT8 策略、IMU、XL330 闭环 |
 | **ESP32-C5** | esp_hosted **SDIO 从机**、WiFi、遥控 → P4 |
 
-**P4↔C5 默认 SDIO**（esp_hosted peer-data），不用 UART。说明见 [docs/architecture.md](docs/architecture.md)、[c5_wireless/README.md](c5_wireless/README.md)。
+对齐基准是原版 [pollen-robotics/microduck](https://github.com/pollen-robotics/microduck) 的 `robotd`/`duck-control`，不是其它 ESP 移植。说明见 [docs/architecture.md](docs/architecture.md)。
+
+**P4↔C5 默认 SDIO**（esp_hosted peer-data），不用 UART。
 
 ## P4 固件
 
