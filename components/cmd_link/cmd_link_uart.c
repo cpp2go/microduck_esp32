@@ -2,6 +2,10 @@
 
 #include "cmd_link.h"
 
+#include "sdkconfig.h"
+
+#if CONFIG_MICRODUCK_CMD_UART_ENABLE
+
 #include <inttypes.h>
 #include <stddef.h>
 #include <string.h>
@@ -12,7 +16,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "microduck_link.h"
-#include "sdkconfig.h"
 
 static const char *kTag = "cmd_uart";
 
@@ -45,9 +48,6 @@ static void uart_ingest_task(void *)
 
 void cmd_link_start_uart_ingest(void)
 {
-#if !CONFIG_MICRODUCK_CMD_UART_ENABLE
-    return;
-#endif
     uart_config_t cfg = {
         .baud_rate = CONFIG_MICRODUCK_CMD_UART_BAUD,
         .data_bits = UART_DATA_8_BITS,
@@ -65,3 +65,9 @@ void cmd_link_start_uart_ingest(void)
     ESP_LOGI(kTag, "UART%d ingest @ %d baud (bench only)", CONFIG_MICRODUCK_CMD_UART_NUM,
              CONFIG_MICRODUCK_CMD_UART_BAUD);
 }
+
+#else
+
+void cmd_link_start_uart_ingest(void) {}
+
+#endif /* CONFIG_MICRODUCK_CMD_UART_ENABLE */

@@ -17,8 +17,9 @@
 
 static const char *kTag = "cmd_sdio";
 
-static void on_cmd_from_c5(uint32_t msg_id, const uint8_t *data, size_t data_len)
+static void on_cmd_from_c5(uint32_t msg_id, const uint8_t *data, size_t data_len, void *ctx)
 {
+    (void)ctx;
     if (msg_id != MICRODUCK_MSG_ID_CMD) {
         return;
     }
@@ -49,7 +50,7 @@ static void hosted_bootstrap_task(void *arg)
         vTaskDelete(NULL);
         return;
     }
-    ret = esp_hosted_register_custom_callback(MICRODUCK_MSG_ID_CMD, on_cmd_from_c5);
+    ret = esp_hosted_register_custom_callback(MICRODUCK_MSG_ID_CMD, on_cmd_from_c5, NULL);
     if (ret != ESP_OK) {
         ESP_LOGE(kTag, "register cmd callback: %s", esp_err_to_name(ret));
         vTaskDelete(NULL);

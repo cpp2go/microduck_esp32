@@ -33,11 +33,11 @@ typedef struct {
     uint32_t crc32;  ///< optional; 0 if unused
 } microduck_link_frame_t;
 
-static const microduck_command_block_t MICRODUCK_COMMAND_IDLE = {{
-    {0.f, 0.f, 0.f},
-    {0.f, 0.f, 0.f, 0.f},
-    {0.f, 0.f, 0.f, 0.f, 0.f, 0.f},
-}};
+static const microduck_command_block_t MICRODUCK_COMMAND_IDLE = {
+    .twist = {0.f, 0.f, 0.f},
+    .head_pose = {0.f, 0.f, 0.f, 0.f},
+    .body_pose = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f},
+};
 
 #ifdef __cplusplus
 }
