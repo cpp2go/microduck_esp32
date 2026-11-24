@@ -28,6 +28,23 @@ Linux (microduck_rl)  训练 → ONNX → bake INT8
 
 UART 仅 `menuconfig` 选 **UART (bench)** 时用于无共板台架；**产品不用 UART 传命令**。
 
+## 真机闭环（P4）
+
+布局与上游 [`duck-control/src/obs.rs`](https://github.com/pollen-robotics/microduck/blob/main/duck-control/src/obs.rs) 一致（61D obs / 14D action，嘴关节不占策略槽位）。
+
+```
+50 Hz (core 1):
+  BMI270（板载）或将来 imu_to_dxl@200 → obs[0:6]
+  15× XL330 SyncRead（ID 20–24,10–14,30–34）→ policy 槽位 joint_rel/vel/last_action → obs[6:48]
+  C5 SDIO cmd（body 仅 z,roll,pitch；x/y/yaw 强制 0）→ obs[48:61]
+  INT8 policy → action[14]
+  scatter → HOME + action×scale（head/leg 低通同 robotd 默认）→ SyncWrite
+```
+
+上游 `robotd` 在 **同一条 1 Mbps 总线** 上与 `imu_to_dxl` 一次读完；本固件暂用 P4 本地 BMI270，关节表见 `common/include/microduck_model.h`。
+
+Protocol 2.0 @ 1 Mbps；连续读失败则自动 `torque off`。
+
 ## 固件
 
 | 路径 | 目标 |

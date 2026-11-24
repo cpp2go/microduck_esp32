@@ -1,0 +1,61 @@
+menu "Microduck Dynamixel bus (XL330)"
+
+    config MICRODUCK_SERVO_ENABLE
+        bool "Drive alpha XL330 servos and fill proprioception obs"
+        default y
+
+    config MICRODUCK_SERVO_UART_NUM
+        int "UART port"
+        range 0 2
+        default 2
+        depends on MICRODUCK_SERVO_ENABLE
+
+    config MICRODUCK_SERVO_UART_BAUD
+        int "Baud rate"
+        default 1000000
+        depends on MICRODUCK_SERVO_ENABLE
+
+    config MICRODUCK_SERVO_TX_GPIO
+        int "UART TX GPIO"
+        range -1 55
+        default 20
+        depends on MICRODUCK_SERVO_ENABLE
+
+    config MICRODUCK_SERVO_RX_GPIO
+        int "UART RX GPIO"
+        range -1 55
+        default 19
+        depends on MICRODUCK_SERVO_ENABLE
+
+    config MICRODUCK_SERVO_DIR_GPIO
+        int "RS485 DE GPIO (-1 = TTL bus, no direction pin)"
+        range -1 55
+        default -1
+        depends on MICRODUCK_SERVO_ENABLE
+
+    config MICRODUCK_SERVO_POSITION_KP
+        int "Position P gain (Dynamixel register, training uses 200)"
+        default 200
+        depends on MICRODUCK_SERVO_ENABLE
+
+    config MICRODUCK_SERVO_ACTION_SCALE
+        int "Action scale × 1000 (robotd default 0.9 = 900)"
+        default 900
+        depends on MICRODUCK_SERVO_ENABLE
+
+    config MICRODUCK_SERVO_HEAD_LOWPASS
+        int "Head joint low-pass alpha × 1000 (robotd default 0.5)"
+        default 500
+        depends on MICRODUCK_SERVO_ENABLE
+
+    config MICRODUCK_SERVO_LEG_LOWPASS
+        int "Leg joint low-pass alpha × 1000 (robotd default 0.7)"
+        default 700
+        depends on MICRODUCK_SERVO_ENABLE
+
+    config MICRODUCK_SERVO_FAIL_LIMIT
+        int "Disable torque after this many consecutive read failures"
+        default 10
+        depends on MICRODUCK_SERVO_ENABLE
+
+endmenu

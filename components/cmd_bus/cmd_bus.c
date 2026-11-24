@@ -6,6 +6,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "microduck_model.h"
 
 static microduck_command_block_t s_cmd = MICRODUCK_COMMAND_IDLE;
 static uint32_t s_seq = 0;
@@ -65,7 +66,11 @@ void cmd_bus_apply_to_obs(float *obs61)
     for (int i = 0; i < 4; ++i) {
         obs61[o++] = c.head_pose[i];
     }
-    for (int i = 0; i < 6; ++i) {
-        obs61[o++] = c.body_pose[i];
-    }
+    /* duck-control/obs.rs: body x,y,yaw are always zero; z,roll,pitch from command.body */
+    obs61[o++] = 0.0f;
+    obs61[o++] = 0.0f;
+    obs61[o++] = c.body_pose[0];
+    obs61[o++] = c.body_pose[1];
+    obs61[o++] = c.body_pose[2];
+    obs61[o++] = 0.0f;
 }

@@ -21,6 +21,20 @@ idf.py build flash monitor
 
 按 `c5_wireless/README.md` 编译 **esp-hosted-mcu/slave**（`esp32c5`），并入 `esp_hosted_slave_patch/microduck_cmd_publisher.c`。
 
+## 真机闭环（舵机 + 观测）
+
+50 Hz 环顺序：**SyncRead 关节 → 组 61D 观测 → INT8 策略 → SyncWrite Goal Position**。
+
+| 配置 | menuconfig → Microduck Dynamixel bus |
+|------|--------------------------------------|
+| UART 引脚 / 1 Mbps | `SERVO_TX/RX_GPIO` |
+| 电机 ID | alpha 表 `20–24,10–14,30–34`（见 `common/include/microduck_model.h`） |
+| 动作 | `scatter` → `HOME + action × scale`（默认 scale=0.9，head/leg 低通同 robotd） |
+
+Shell：`servo stats` · `servo off`（急停断扭矩）· `servo on`。
+
+**上电先** `policy test` **并在支架上确认** `servo off` 可用，再让脚着地。
+
 ## 调试
 
 - `policy loop` / `policy stats` — P4 侧 50 Hz  

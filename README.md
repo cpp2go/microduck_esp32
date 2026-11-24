@@ -6,8 +6,6 @@ Microduck 在嵌入式侧拆成两颗芯片 + Linux 训练：
 - **ESP32-P4** — 本工程：50 Hz INT8 策略、IMU、动作输出
 - **ESP32-C5** — [`c5_wireless/`](c5_wireless/)：无线与遥控命令（不写策略）
 
-从 [`esp-duck`](../esp-duck) 移植的推理栈与 **61 维观测** 约定不变。架构图见 [docs/architecture.md](docs/architecture.md)。
-
 ## 与 esp-duck (ESP32-S3) 的差异
 
 | 项目 | esp-duck | microduck_esp32 |
@@ -67,10 +65,10 @@ uv run scripts/export.py Mjlab-Velocity-Flat-MicroDuck --wandb-run-path <entity/
 
 - `[0:3]` 陀螺（trunk，rad/s）
 - `[3:6]` 投影重力（单位向量，直立 ≈ `0, 0, -1`）
-- `[6:20]` 关节位置 / 速度 / 上次动作（当前无舵机总线时为 0）
+- `[6:48]` 关节位置 / 速度 / 上次动作（14 策略槽，嘴关节不占位）
 - `[48:61]` 命令块（twist + head + body）
 
-策略输出 14 维关节目标；**尚未接 Dynamixel 总线**时需由后续 `servo` 组件消费 `duck::Run()` 的结果。
+`components/servo_bus` 在 50 Hz 环内 **SyncRead/SyncWrite** 15 路 XL330，填充 `obs[6:48]` 并执行 `scatter` + `HOME + action × scale`。
 
 ## 目录结构
 

@@ -6,7 +6,7 @@
  *
  * Boots, verifies the active policy against FP32 ONNX-Runtime golden vectors,
  * runs a 50 Hz inference loop fed by the BMI270 IMU when present (gyro +
- * projected gravity; joint channels stay synthetic until the servo bus exists),
+ * projected gravity; 15-joint XL330 bus fills obs[6:48] per duck-control/obs.rs),
  * and exposes an interactive shell over native USB with runtime policy switching.
  */
 
@@ -30,6 +30,7 @@
 
 #include "cmd_bus.h"
 #include "cmd_link.h"
+#include "servo_bus.h"
 #include "duck_policy.hpp"
 #include "imu.h"
 #include "policy_output.h"
@@ -133,7 +134,7 @@ struct LoopStats {
 LoopStats g_loop;
 float g_obs_ws[2 * duck::kMaxHidden];
 
-/// Core-1 task: IMU -> obs assembly -> policy -> discard, paced to 20 ms.
+/// Core-1 task: IMU + XL330 feedback -> 61D obs -> policy -> Goal Position @ 50 Hz.
 void PolicyTask(void *) {
     float obs[duck::kMaxHidden] = {0};
     TickType_t next_wake = xTaskGetTickCount();
@@ -144,15 +145,12 @@ void PolicyTask(void *) {
         imu::Poll();
         const float *gyro = imu::GyroRad();
         const float *grav = imu::ProjGravity();
-        // Layout per upstream obs.rs: gyro(3) | projected gravity(3) |
-        // joint pos(14, rel. home) | joint vel(14) | last action(14) |
-        // command(13: twist3, head4, body x/y/z/roll/pitch/yaw with x,y,yaw
-        // unbound). IMU blocks are real; everything else is the standing
-        // robot's zeros until the servo bus exists.
         for (int i = 0; i < 3; ++i) {
             obs[i] = gyro[i];
             obs[3 + i] = grav[i];
         }
+        (void)servo_bus_poll(nullptr);
+        servo_bus_write_obs_proprio(obs);
         float act[duck::kMaxHidden];
         cmd_bus_apply_to_obs(obs);
         duck::Run(obs, act, g_obs_ws);
@@ -161,6 +159,7 @@ void PolicyTask(void *) {
             published[j] = act[j];
         }
         microduck_policy_set_actions(published);
+        (void)servo_bus_write_goals_rel(published);
         int64_t dt = esp_timer_get_time() - t0;
         (void)window_ticks;
 
@@ -187,7 +186,7 @@ void StartPolicyLoop() {
     g_loop.misses = 0;
     g_loop.ticks = 0;
     // Core 1 keeps the shell REPL responsive on core 0 (P4 is dual-core RISC-V).
-    xTaskCreatePinnedToCore(PolicyTask, "policy", 8192, nullptr, 5, nullptr, 1);
+    xTaskCreatePinnedToCore(PolicyTask, "policy", 12288, nullptr, 5, nullptr, 1);
 }
 
 void StopPolicyLoop() { g_loop.running = false; }
@@ -351,6 +350,36 @@ int CmdPolicyUse(int argc, char **argv) {
 }
 
 /// `imu`: live BMI270 readout — tilt the board and watch it move.
+int CmdServo(int argc, char **argv) {
+    const char *sub = (argc > 1) ? argv[1] : "stats";
+    if (strcmp(sub, "off") == 0) {
+        servo_bus_torque_enable(false);
+        return 0;
+    }
+    if (strcmp(sub, "on") == 0) {
+        servo_bus_torque_enable(true);
+        return 0;
+    }
+    servo_state_t st;
+    servo_bus_get_state(&st);
+    printf("torque %s, reads ok=%" PRIu32 " fail=%" PRIu32 "\n",
+           st.torque_enabled ? "ON" : "OFF", st.read_ok, st.read_fail);
+    printf("joint pos_rel (15 phys, mouth@9):");
+    for (int i = 0; i < MICRODUCK_NUM_JOINTS; ++i) {
+        printf(" %+.2f", st.pos_rel[i]);
+    }
+    printf("\n");
+    return 0;
+}
+
+int CmdServoDispatch(int argc, char **argv) {
+    if (argc < 2) {
+        printf("usage: servo <stats|on|off>\n");
+        return 1;
+    }
+    return CmdServo(argc, argv);
+}
+
 int CmdImu(int, char **) {
     const float *a = imu::AccelG();
     const float *g = imu::GyroRad();
@@ -417,6 +446,12 @@ extern "C" void app_main(void) {
         ESP_LOGW(kTag, "IMU offline — loop observations stay synthetic");
     }
 
+    if (servo_bus_init()) {
+        ESP_LOGI(kTag, "XL330 bus online — closed-loop 50 Hz control");
+    } else {
+        ESP_LOGW(kTag, "servo bus offline — proprioception and actuation disabled");
+    }
+
     QMetrics wr, ws;
     double scale = 0.0;
     const bool pass = GoldenSelfTest(*duck::CurrentModel(), &wr, &ws, &scale);
@@ -444,6 +479,8 @@ extern "C" void app_main(void) {
                             CmdPolicy});
     g_shell.RegisterCommand({"imu",    "Live BMI270 readout (tilt the board)",
                             "",        CmdImu});
+    g_shell.RegisterCommand({"servo",  "XL330 bus: stats, emergency torque off/on",
+                            "<stats|on|off>", CmdServoDispatch});
     g_shell.RegisterCommand({"reboot", "Reboot the device", "", CmdReboot});
     g_shell.Start();
 }

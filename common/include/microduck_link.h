@@ -16,8 +16,8 @@ extern "C" {
 /// esp_hosted peer-data message ID: C5 (slave) → P4 (host), payload = microduck_link_frame_t.
 #define MICRODUCK_MSG_ID_CMD 0x4D444301u
 
-/// Maps to actor observation indices [48:61]:
-///   twist(3) + head_pose(4) + body_pose(6) — same order as mjlab_microduck.
+/// Maps to actor observation indices [48:61] (see pollen-robotics/microduck duck-control/src/obs.rs).
+/// body_pose uses the first three entries as z, roll, pitch; x/y/yaw are forced to 0 on P4.
 typedef struct {
     float twist[3];
     float head_pose[4];
