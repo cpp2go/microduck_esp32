@@ -410,7 +410,8 @@ int CmdSound(int argc, char **argv) {
         for (int i = 0; i < n; ++i) {
             printf(" %s", tags[i]);
         }
-        printf("\navailable=%s\n", sound_available() ? "yes" : "no");
+        printf("\navailable=%s hw=%s (ES8311+NS4150B)\n", sound_available() ? "yes" : "no",
+               sound_hw_ready() ? "ready" : "log-only");
         return 0;
     }
     if (!sound_play(argv[1])) {

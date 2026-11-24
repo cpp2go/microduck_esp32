@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 //
-// Minimal on-device voice equivalent of pollen-robotics/microduck robotd/src/sound.rs:
-// play a named tag (emotion / cue). Original uses WAV bank + aplay; this board
-// synthesizes short I2S tones (or log-only when disabled / no codec).
+// On-device voice cues aligned with pollen-robotics/microduck robotd tags.
+// Hardware path: ES8311 (I2C + I2S DAC) → NS4150B (PA_CTRL GPIO) → speaker.
+// Without HW / on probe failure, play() still logs the tag.
 #pragma once
 
 #include <stdbool.h>
@@ -20,6 +20,9 @@ bool sound_play(const char *tag);
 const char *const *sound_tags(int *count_out);
 
 bool sound_available(void);
+
+/// True when ES8311 + I2S path is live (not log-only).
+bool sound_hw_ready(void);
 
 #ifdef __cplusplus
 }

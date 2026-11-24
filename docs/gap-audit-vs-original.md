@@ -11,7 +11,7 @@
 | IMU → gyro + projected gravity | ICM-42688 SPI + Mahony（契约同 `ImuData`） |
 | 命令块 + EMA（body x/y/yaw=0） | `cmd_bus` + C5 peer-data |
 | 板端策略推理 | P4 INT8 `duck_policy`（非 Linux ONNX） |
-| 声音 tag 播放入口 | **最小等价**：`components/sound`（见 [vision-sound-port.md](vision-sound-port.md)） |
+| 声音 tag 播放入口 | **ES8311 + NS4150B** 硬件通路 + tag 合成 cue（见 [vision-sound-port.md](vision-sound-port.md)） |
 | 视觉帧总线入口 | **最小等价**：`components/vision` synthetic（同上） |
 
 ## 视觉 / 声音（优先项）— 仍缺
@@ -20,7 +20,7 @@
 |----------|------|
 | mediad 相机 + pipeline + WebRTC | Linux/V4L2；P4 无真实 CSI 驱动接线 |
 | duck-detect / pet-detect / ball | 无 YOLO/RKNN；detect API 占位 |
-| WAV 语音库 + aplay | 无银行；仅 I2S/log 短音 |
+| WAV 语音库 + aplay | 无银行；板端合成短音经 ES8311/NS4150B |
 | theremin / wheee / chorale | 未移植 |
 | emotion JSON 驱动姿态/表情 | 未移植（仅 tag 名） |
 
@@ -58,6 +58,6 @@
 ## 建议后续优先级
 
 1. 真机 CSI（或外置 USB 相机经主机）接到 `vision_grab`，再决定板端轻量检测 vs 主机检测。  
-2. 接 I2S DAC，可选嵌入短 PCM 替代纯正弦。  
+2. 嵌入短 PCM/WAV 替代合成 cue（硬件通路已就位）。  
 3. 技能状态机 + 多网络 bake（stand/sit），与原版 `control.rs` 调度对齐。  
 4. 标定 ICM/舵机轴系与 trunk 映射。

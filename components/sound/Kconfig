@@ -1,35 +1,91 @@
-menu "Microduck sound (I2S cue tones)"
+menu "Microduck sound (ES8311 + NS4150B)"
 
     config MICRODUCK_SOUND_ENABLE
-        bool "Enable on-board sound cues (I2S or log-only)"
+        bool "Enable on-board sound cues"
         default y
         help
-            Minimal port of robotd voice tags. Without a wired DAC/speaker the
-            driver still accepts play() and logs the cue (simulation).
+            robotd-style voice tags via ES8311 codec + NS4150B amp.
+            Falls back to log-only if codec probe / I2S init fails.
 
-    config MICRODUCK_SOUND_I2S_ENABLE
-        bool "Drive I2S TX for audible tones"
-        default n
+    config MICRODUCK_SOUND_HW_ENABLE
+        bool "Drive ES8311 (I2C) + I2S TX + NS4150B PA"
+        default y
         depends on MICRODUCK_SOUND_ENABLE
         help
-            Off = log-only simulation. On = generate short sine bursts on I2S.
+            On = real hardware path. Off = log-only simulation.
+
+    config MICRODUCK_SOUND_I2C_PORT
+        int "I2C port for ES8311"
+        range 0 1
+        default 0
+        depends on MICRODUCK_SOUND_HW_ENABLE
+
+    config MICRODUCK_SOUND_I2C_SDA_GPIO
+        int "I2C SDA GPIO"
+        range 0 55
+        default 7
+        depends on MICRODUCK_SOUND_HW_ENABLE
+        help
+            Waveshare ESP32-P4-Pico default: GPIO7.
+
+    config MICRODUCK_SOUND_I2C_SCL_GPIO
+        int "I2C SCL GPIO"
+        range 0 55
+        default 8
+        depends on MICRODUCK_SOUND_HW_ENABLE
+        help
+            Waveshare ESP32-P4-Pico default: GPIO8.
+
+    config MICRODUCK_SOUND_I2C_ADDR
+        hex "ES8311 7-bit I2C address"
+        default 0x18
+        depends on MICRODUCK_SOUND_HW_ENABLE
+        help
+            CE pin low → 0x18; CE high → 0x19.
+
+    config MICRODUCK_SOUND_I2S_MCLK_GPIO
+        int "I2S MCLK GPIO"
+        range 0 55
+        default 13
+        depends on MICRODUCK_SOUND_HW_ENABLE
 
     config MICRODUCK_SOUND_I2S_BCLK_GPIO
-        int "I2S BCLK GPIO"
+        int "I2S BCLK (SCLK) GPIO"
         range 0 55
         default 12
-        depends on MICRODUCK_SOUND_I2S_ENABLE
+        depends on MICRODUCK_SOUND_HW_ENABLE
 
     config MICRODUCK_SOUND_I2S_WS_GPIO
         int "I2S WS (LRCK) GPIO"
         range 0 55
-        default 13
-        depends on MICRODUCK_SOUND_I2S_ENABLE
+        default 10
+        depends on MICRODUCK_SOUND_HW_ENABLE
 
     config MICRODUCK_SOUND_I2S_DOUT_GPIO
-        int "I2S DOUT GPIO"
+        int "I2S DOUT GPIO (ESP → ES8311 SDIN)"
         range 0 55
-        default 14
-        depends on MICRODUCK_SOUND_I2S_ENABLE
+        default 9
+        depends on MICRODUCK_SOUND_HW_ENABLE
+
+    config MICRODUCK_SOUND_PA_GPIO
+        int "NS4150B PA_CTRL GPIO (-1 = unused)"
+        range -1 55
+        default 53
+        depends on MICRODUCK_SOUND_HW_ENABLE
+        help
+            Active-high enable for NS4150B. Waveshare P4 boards use GPIO53.
+            Set -1 if PA is hard-wired always-on.
+
+    config MICRODUCK_SOUND_VOLUME
+        int "Default DAC volume percent"
+        range 0 100
+        default 70
+        depends on MICRODUCK_SOUND_HW_ENABLE
+
+    # Legacy name kept so old sdkconfig fragments still parse if present.
+    config MICRODUCK_SOUND_I2S_ENABLE
+        bool
+        depends on MICRODUCK_SOUND_HW_ENABLE
+        default y
 
 endmenu

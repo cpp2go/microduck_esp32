@@ -30,6 +30,6 @@ idf.py build flash monitor
 
 Shell：`servo stats` · `servo off` · `servo on` · `imu` · `sound list|yes` · `vision status|grab|detect`。
 
-声音/视觉为原版最小等价（非 Linux WAV/mediad 全栈），说明见 [docs/vision-sound-port.md](docs/vision-sound-port.md)；缺口盘点见 [docs/gap-audit-vs-original.md](docs/gap-audit-vs-original.md)。
+声音走 **ES8311 编解码 + NS4150B 功放**（默认引脚见 menuconfig / Waveshare P4-Pico）；视觉为 synthetic 帧总线。说明见 [docs/vision-sound-port.md](docs/vision-sound-port.md)；缺口盘点见 [docs/gap-audit-vs-original.md](docs/gap-audit-vs-original.md)。
 
 **上电先** `policy test` **并在支架上确认** `servo off` 可用，再着地。

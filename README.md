@@ -20,7 +20,7 @@ Microduck 在嵌入式侧拆成两颗芯片 + Linux 训练：
 | IMU | `imu_to_dxl` @200 | **ICM-42688 SPI** + Mahony |
 | 命令块 / EMA | body x/y/yaw=0；alpha=0.2 | 同 |
 | 推理 | 板载 Linux ONNX | **ESP32-P4 INT8 `duck_policy`** |
-| 声音 / 视觉 | WAV+aplay / mediad | **最小等价** tag 音效 + synthetic 帧总线 |
+| 声音 / 视觉 | WAV+aplay / mediad | **ES8311+NS4150B** tag 音效 + synthetic 帧总线 |
 
 详见 [docs/architecture.md](docs/architecture.md)、[docs/vision-sound-port.md](docs/vision-sound-port.md)、[docs/gap-audit-vs-original.md](docs/gap-audit-vs-original.md)。
 
@@ -55,7 +55,7 @@ components/duck_policy/   板端 INT8 推理
 components/imu/           ICM-42688 SPI
 components/servo_bus/     Feetech STS/HD1910 SyncRead/Write
 components/cmd_bus/       命令块 + EMA
-components/sound/         情绪/cue tag（I2S 或 log-only）
+components/sound/         ES8311 + NS4150B 情绪/cue tag
 components/vision/        帧总线（synthetic；CSI 未接线）
 main/main.cpp             50 Hz 环
 ```
