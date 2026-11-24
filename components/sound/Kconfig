@@ -1,0 +1,35 @@
+menu "Microduck sound (I2S cue tones)"
+
+    config MICRODUCK_SOUND_ENABLE
+        bool "Enable on-board sound cues (I2S or log-only)"
+        default y
+        help
+            Minimal port of robotd voice tags. Without a wired DAC/speaker the
+            driver still accepts play() and logs the cue (simulation).
+
+    config MICRODUCK_SOUND_I2S_ENABLE
+        bool "Drive I2S TX for audible tones"
+        default n
+        depends on MICRODUCK_SOUND_ENABLE
+        help
+            Off = log-only simulation. On = generate short sine bursts on I2S.
+
+    config MICRODUCK_SOUND_I2S_BCLK_GPIO
+        int "I2S BCLK GPIO"
+        range 0 55
+        default 12
+        depends on MICRODUCK_SOUND_I2S_ENABLE
+
+    config MICRODUCK_SOUND_I2S_WS_GPIO
+        int "I2S WS (LRCK) GPIO"
+        range 0 55
+        default 13
+        depends on MICRODUCK_SOUND_I2S_ENABLE
+
+    config MICRODUCK_SOUND_I2S_DOUT_GPIO
+        int "I2S DOUT GPIO"
+        range 0 55
+        default 14
+        depends on MICRODUCK_SOUND_I2S_ENABLE
+
+endmenu
