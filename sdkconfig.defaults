@@ -1,0 +1,45 @@
+# ── Target / clock ──────────────────────────────────────────────────────────
+CONFIG_IDF_TARGET="esp32p4"
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_360=y
+CONFIG_IDF_EXPERIMENTAL_FEATURES=y
+
+# ── Console ─────────────────────────────────────────────────────────────────
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# ── Flash / partition ───────────────────────────────────────────────────────
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE_DETECT=n
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# ── ESP PSRAM (policy weights) ────────────────────────────────────────────
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_SPEED_200M=y
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y
+CONFIG_SPIRAM_USE_CAPS_ALLOC=y
+CONFIG_SPIRAM_MEMTEST=n
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# ── ESP-Hosted: P4 host ← SDIO → C5 slave ─────────────────────────────────
+CONFIG_SLAVE_IDF_TARGET_ESP32C5=y
+CONFIG_ESP_HOSTED_CP_TARGET_ESP32C5=y
+CONFIG_ESP_HOSTED_SDIO_HOST_INTERFACE=y
+CONFIG_ESP_HOSTED_SDIO_4_BIT_BUS=y
+CONFIG_ESP_HOSTED_MEMPOOL_PREFER_SPIRAM=y
+CONFIG_ESP_HOSTED_HOST_FEAT_PEER_DATA=y
+
+# Pick your P4+C5 dev kit in menuconfig if pins differ (e.g. P4-C5 Core Board).
+# CONFIG_ESP_HOSTED_P4_C5_CORE_BOARD=y
+
+# ── Command link: SDIO peer-data (not UART) ─────────────────────────────────
+CONFIG_MICRODUCK_CMD_SDIO_ENABLE=y
+
+# ── Compiler / WDT ──────────────────────────────────────────────────────────
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+
+# ── IMU (P4 local) ─────────────────────────────────────────────────────────
+CONFIG_MICRODUCK_IMU_ENABLE=y
+CONFIG_MICRODUCK_IMU_SDA_GPIO=2
+CONFIG_MICRODUCK_IMU_SCL_GPIO=3

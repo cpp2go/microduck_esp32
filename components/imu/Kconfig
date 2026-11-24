@@ -1,0 +1,28 @@
+menu "Microduck IMU (BMI270)"
+
+    config MICRODUCK_IMU_ENABLE
+        bool "Probe and use BMI270 for policy observations"
+        default y
+        help
+            When enabled, imu::Init() brings up the Bosch BMI270 on the
+            configured I2C bus. If init fails, the 50 Hz loop keeps synthetic
+            joint channels and still runs timing / plumbing tests.
+
+    config MICRODUCK_IMU_SDA_GPIO
+        int "I2C SDA GPIO"
+        range 0 55
+        default 2
+        depends on MICRODUCK_IMU_ENABLE
+        help
+            I2C data line for the BMI270. esp-duck hard-wires CoreS3 GPIO12/11;
+            set these to match your ESP32-P4 Microduck carrier.
+
+    config MICRODUCK_IMU_SCL_GPIO
+        int "I2C SCL GPIO"
+        range 0 55
+        default 3
+        depends on MICRODUCK_IMU_ENABLE
+        help
+            I2C clock line for the BMI270.
+
+endmenu

@@ -1,0 +1,7 @@
+## P4 hosts ESP32-C5 over SDIO (esp_hosted). WiFi runs on C5; P4 ingests
+## remote commands via peer-data (see components/cmd_link/cmd_link_sdio.c).
+dependencies:
+  espressif/esp_hosted:
+    version: ">=3.0.0,<4.0.0"
+  espressif/esp_wifi_remote:
+    version: ">=1.6.0,<2.0.0"

@@ -1,0 +1,14 @@
+# ESP-IDF build artifacts
+build/
+sdkconfig
+sdkconfig.old
+sdkconfig.ci*
+dependencies.lock
+managed_components/
+
+# Generated per-build junk
+*.DS_Store
+
+# Python
+__pycache__/
+*.pyc

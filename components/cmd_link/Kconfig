@@ -1,0 +1,43 @@
+menu "Microduck P4 ← C5 command link"
+
+    choice MICRODUCK_CMD_TRANSPORT
+        prompt "Transport to ESP32-C5"
+        default MICRODUCK_CMD_SDIO_ENABLE
+
+        config MICRODUCK_CMD_SDIO_ENABLE
+            bool "SDIO (esp_hosted peer-data) — production"
+            help
+                P4 is esp_hosted host; C5 runs coprocessor firmware with
+                SDIO slave. Remote command frames use MICRODUCK_MSG_ID_CMD.
+
+        config MICRODUCK_CMD_UART_ENABLE
+            bool "UART (bench / no coprocessor)"
+            help
+                Wire-cross UART only when SDIO is unavailable. Do not use with
+                esp_hosted SDIO on the same link.
+    endchoice
+
+    menu "UART bench options"
+        depends on MICRODUCK_CMD_UART_ENABLE
+
+        config MICRODUCK_CMD_UART_NUM
+            int "UART port number"
+            range 0 2
+            default 1
+
+        config MICRODUCK_CMD_UART_BAUD
+            int "UART baud rate"
+            default 921600
+
+        config MICRODUCK_CMD_UART_TX_GPIO
+            int "UART TX GPIO (P4 TX → C5 RX)"
+            range 0 55
+            default 17
+
+        config MICRODUCK_CMD_UART_RX_GPIO
+            int "UART RX GPIO (P4 RX ← C5 TX)"
+            range 0 55
+            default 18
+    endmenu
+
+endmenu

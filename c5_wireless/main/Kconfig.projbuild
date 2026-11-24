@@ -1,0 +1,27 @@
+menu "Microduck C5 → P4 UART"
+
+    config MICRODUCK_C5_UART_NUM
+        int "UART port"
+        range 0 2
+        default 1
+
+    config MICRODUCK_C5_UART_BAUD
+        int "Baud rate"
+        default 921600
+
+    config MICRODUCK_C5_UART_TX_GPIO
+        int "TX GPIO (C5 TX → P4 RX)"
+        range 0 30
+        default 10
+
+    config MICRODUCK_C5_UART_RX_GPIO
+        int "RX GPIO (C5 RX ← P4 TX)"
+        range 0 30
+        default 11
+
+    config MICRODUCK_C5_CMD_HZ
+        int "Default command publish rate (Hz)"
+        range 1 50
+        default 20
+
+endmenu
