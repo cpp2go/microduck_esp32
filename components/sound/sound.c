@@ -4,12 +4,13 @@
 
 #include <math.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "driver/i2s_std.h"
-#include "es8311_dac.h"
+#include "es8311_codec.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -21,7 +22,6 @@
 
 static const char *kTag = "sound";
 
-/// Tags aligned with robotd emotions / voice bank directories (subset).
 static const char *const kTags[] = {
     "yes", "no", "sad", "angry", "curious", "excited", "laugh", "mmh", "mock",
     "impatient", "defiant", "devastated", "yes_fast", "hello", "bye",
@@ -31,10 +31,12 @@ enum { kSampleHz = 16000, kMclkMultiple = 256, kMclkHz = kSampleHz * kMclkMultip
 
 static bool s_up;
 static bool s_hw;
+static bool s_mic;
 static i2s_chan_handle_t s_tx;
+static i2s_chan_handle_t s_rx;
 static i2c_master_bus_handle_t s_i2c_bus;
 static i2c_master_dev_handle_t s_i2c_dev;
-static es8311_dac_t s_codec;
+static es8311_codec_t s_codec;
 
 static float tag_hz(const char *tag)
 {
@@ -116,11 +118,16 @@ static bool init_i2c_codec(void)
         ESP_LOGE(kTag, "I2C add ES8311 failed");
         return false;
     }
-    if (es8311_dac_init(&s_codec, s_i2c_dev, kSampleHz, kMclkHz) != ESP_OK) {
+    if (es8311_codec_init(&s_codec, s_i2c_dev, kSampleHz, kMclkHz) != ESP_OK) {
         ESP_LOGE(kTag, "ES8311 init failed");
         return false;
     }
-    (void)es8311_dac_set_volume(&s_codec, CONFIG_MICRODUCK_SOUND_VOLUME);
+    (void)es8311_codec_set_dac_volume(&s_codec, CONFIG_MICRODUCK_SOUND_VOLUME);
+#if CONFIG_MICRODUCK_SOUND_MIC_ENABLE
+    if (es8311_codec_enable_mic(&s_codec, CONFIG_MICRODUCK_SOUND_MIC_GAIN_DB) != ESP_OK) {
+        ESP_LOGW(kTag, "mic enable failed — record unavailable");
+    }
+#endif
     ESP_LOGI(kTag, "ES8311 ready I2C%d SDA=%d SCL=%d addr=0x%02x vol=%d", CONFIG_MICRODUCK_SOUND_I2C_PORT,
              CONFIG_MICRODUCK_SOUND_I2C_SDA_GPIO, CONFIG_MICRODUCK_SOUND_I2C_SCL_GPIO, CONFIG_MICRODUCK_SOUND_I2C_ADDR,
              CONFIG_MICRODUCK_SOUND_VOLUME);
@@ -131,10 +138,18 @@ static bool init_i2s(void)
 {
     i2s_chan_config_t chan = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
     chan.auto_clear = true;
-    if (i2s_new_channel(&chan, &s_tx, NULL) != ESP_OK) {
-        ESP_LOGE(kTag, "i2s channel failed");
+#if CONFIG_MICRODUCK_SOUND_MIC_ENABLE
+    if (i2s_new_channel(&chan, &s_tx, &s_rx) != ESP_OK) {
+        ESP_LOGE(kTag, "i2s duplex channel failed");
         return false;
     }
+#else
+    if (i2s_new_channel(&chan, &s_tx, NULL) != ESP_OK) {
+        ESP_LOGE(kTag, "i2s TX channel failed");
+        return false;
+    }
+#endif
+
     i2s_std_config_t std = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(kSampleHz),
         .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
@@ -144,20 +159,52 @@ static bool init_i2s(void)
                 .bclk = CONFIG_MICRODUCK_SOUND_I2S_BCLK_GPIO,
                 .ws = CONFIG_MICRODUCK_SOUND_I2S_WS_GPIO,
                 .dout = CONFIG_MICRODUCK_SOUND_I2S_DOUT_GPIO,
+#if CONFIG_MICRODUCK_SOUND_MIC_ENABLE
+                .din = CONFIG_MICRODUCK_SOUND_I2S_DIN_GPIO,
+#else
                 .din = I2S_GPIO_UNUSED,
+#endif
                 .invert_flags = {.mclk_inv = false, .bclk_inv = false, .ws_inv = false},
             },
     };
     std.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
-    if (i2s_channel_init_std_mode(s_tx, &std) != ESP_OK || i2s_channel_enable(s_tx) != ESP_OK) {
-        ESP_LOGE(kTag, "i2s init/enable failed");
+
+    if (i2s_channel_init_std_mode(s_tx, &std) != ESP_OK) {
+        ESP_LOGE(kTag, "i2s TX init failed");
         s_tx = NULL;
         return false;
     }
+#if CONFIG_MICRODUCK_SOUND_MIC_ENABLE
+    /* RX shares the controller; clocks already set by TX. Clear mclk on RX gpio to avoid conflict. */
+    i2s_std_config_t rx_std = std;
+    rx_std.gpio_cfg.mclk = I2S_GPIO_UNUSED;
+    rx_std.gpio_cfg.dout = I2S_GPIO_UNUSED;
+    if (i2s_channel_init_std_mode(s_rx, &rx_std) != ESP_OK) {
+        ESP_LOGE(kTag, "i2s RX init failed — mic off");
+        s_rx = NULL;
+    }
+#endif
+    if (i2s_channel_enable(s_tx) != ESP_OK) {
+        ESP_LOGE(kTag, "i2s TX enable failed");
+        s_tx = NULL;
+        return false;
+    }
+#if CONFIG_MICRODUCK_SOUND_MIC_ENABLE
+    if (s_rx && i2s_channel_enable(s_rx) != ESP_OK) {
+        ESP_LOGE(kTag, "i2s RX enable failed — mic off");
+        s_rx = NULL;
+    }
+#endif
+
     ESP_LOGI(kTag, "I2S TX MCLK=%d BCLK=%d WS=%d DOUT=%d @ %d Hz", CONFIG_MICRODUCK_SOUND_I2S_MCLK_GPIO,
              CONFIG_MICRODUCK_SOUND_I2S_BCLK_GPIO, CONFIG_MICRODUCK_SOUND_I2S_WS_GPIO,
              CONFIG_MICRODUCK_SOUND_I2S_DOUT_GPIO, kSampleHz);
-    return true;
+#if CONFIG_MICRODUCK_SOUND_MIC_ENABLE
+    if (s_rx) {
+        ESP_LOGI(kTag, "I2S RX DIN=%d (mic)", CONFIG_MICRODUCK_SOUND_I2S_DIN_GPIO);
+    }
+#endif
+    return s_tx != NULL;
 }
 #endif /* CONFIG_MICRODUCK_SOUND_HW_ENABLE */
 
@@ -169,11 +216,15 @@ bool sound_init(void)
 #endif
 
     s_hw = false;
+    s_mic = false;
 #if CONFIG_MICRODUCK_SOUND_HW_ENABLE
     const bool pa_ok = init_pa();
     const bool codec_ok = init_i2c_codec();
     const bool i2s_ok = init_i2s();
     s_hw = pa_ok && codec_ok && i2s_ok && s_tx;
+#if CONFIG_MICRODUCK_SOUND_MIC_ENABLE
+    s_mic = s_hw && s_rx && s_codec.mic_on;
+#endif
     if (s_hw) {
         pa_set(true);
     } else {
@@ -184,14 +235,18 @@ bool sound_init(void)
 #endif
 
     s_up = true;
-    ESP_LOGI(kTag, "sound ready (%d tags) backend=%s", (int)(sizeof(kTags) / sizeof(kTags[0])),
-             s_hw ? "ES8311+NS4150B" : "log-only");
+    ESP_LOGI(kTag, "sound ready (%d tags) play=%s mic=%s", (int)(sizeof(kTags) / sizeof(kTags[0])),
+             s_hw ? "ES8311+NS4150B" : "log-only", s_mic ? "on" : "off");
     return true;
 }
 
 bool sound_available(void) { return s_up; }
 
 bool sound_hw_ready(void) { return s_hw; }
+
+bool sound_mic_ready(void) { return s_mic; }
+
+int sound_sample_rate(void) { return kSampleHz; }
 
 const char *const *sound_tags(int *count_out)
 {
@@ -213,9 +268,8 @@ bool sound_play(const char *tag)
 #if CONFIG_MICRODUCK_SOUND_HW_ENABLE
     if (s_hw && s_tx) {
         pa_set(true);
-        (void)es8311_dac_mute(&s_codec, false);
+        (void)es8311_codec_mute_dac(&s_codec, false);
         const int frames = (kSampleHz * ms) / 1000;
-        /* Stereo interleaved L/R. Keep stack modest — chunk in blocks. */
         enum { BLOCK = 256 };
         int16_t buf[BLOCK * 2];
         int produced = 0;
@@ -232,7 +286,6 @@ bool sound_play(const char *tag)
                 } else if (idx > frames - release) {
                     env = (float)(frames - idx) / (float)(release ? release : 1);
                 }
-                /* Fundamental + soft 2nd harmonic — slightly less "beep-y". */
                 float s = sinf(2.0f * (float)M_PI * hz * t);
                 s += 0.25f * sinf(4.0f * (float)M_PI * hz * t);
                 int16_t v = (int16_t)(s * 10000.0f * env);
@@ -246,4 +299,82 @@ bool sound_play(const char *tag)
     }
 #endif
     return true;
+}
+
+int sound_record(int16_t *mono, int max_samples, int timeout_ms)
+{
+    if (!mono || max_samples <= 0) {
+        return -1;
+    }
+#if !CONFIG_MICRODUCK_SOUND_HW_ENABLE || !CONFIG_MICRODUCK_SOUND_MIC_ENABLE
+    (void)timeout_ms;
+    return -1;
+#else
+    if (!s_mic || !s_rx) {
+        return -1;
+    }
+    /* Soft-mute PA while capturing to cut speaker→mic loop. */
+    pa_set(false);
+    (void)es8311_codec_mute_dac(&s_codec, true);
+
+    enum { STEREO_BLOCK = 256 };
+    int16_t stereo[STEREO_BLOCK * 2];
+    int got = 0;
+    const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms > 0 ? timeout_ms : 1000);
+
+    while (got < max_samples) {
+        const int need = max_samples - got;
+        const int nframe = need > STEREO_BLOCK ? STEREO_BLOCK : need;
+        size_t bytes = 0;
+        const TickType_t left = deadline - xTaskGetTickCount();
+        if ((int32_t)left <= 0) {
+            break;
+        }
+        esp_err_t err = i2s_channel_read(s_rx, stereo, (size_t)nframe * 2 * sizeof(int16_t), &bytes, left);
+        if (err != ESP_OK || bytes == 0) {
+            break;
+        }
+        const int frames = (int)(bytes / (2 * sizeof(int16_t)));
+        for (int i = 0; i < frames && got < max_samples; ++i) {
+            mono[got++] = stereo[i * 2]; /* left */
+        }
+    }
+
+    (void)es8311_codec_mute_dac(&s_codec, false);
+    pa_set(true);
+    return got;
+#endif
+}
+
+int sound_mic_level(int window_ms)
+{
+    if (window_ms <= 0) {
+        window_ms = 100;
+    }
+    if (window_ms > 2000) {
+        window_ms = 2000;
+    }
+    const int n = (kSampleHz * window_ms) / 1000;
+    if (n <= 0) {
+        return -1;
+    }
+    int16_t *buf = (int16_t *)malloc((size_t)n * sizeof(int16_t));
+    if (!buf) {
+        return -1;
+    }
+    const int got = sound_record(buf, n, window_ms + 200);
+    int peak = 0;
+    if (got > 0) {
+        for (int i = 0; i < got; ++i) {
+            int v = buf[i];
+            if (v < 0) {
+                v = -v;
+            }
+            if (v > peak) {
+                peak = v;
+            }
+        }
+    }
+    free(buf);
+    return got > 0 ? peak : -1;
 }

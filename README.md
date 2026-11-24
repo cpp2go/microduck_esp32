@@ -22,7 +22,7 @@ Microduck 在嵌入式侧拆成两颗芯片 + Linux 训练：
 | 推理 | 板载 Linux ONNX | **ESP32-P4 INT8 `duck_policy`** |
 | 声音 / 视觉 | WAV+aplay / mediad | **ES8311+NS4150B** tag 音效 + synthetic 帧总线 |
 
-详见 [docs/architecture.md](docs/architecture.md)、[docs/vision-sound-port.md](docs/vision-sound-port.md)、[docs/gap-audit-vs-original.md](docs/gap-audit-vs-original.md)。
+详见 [docs/architecture.md](docs/architecture.md)、[docs/es8311-audio.md](docs/es8311-audio.md)、[docs/vision-sound-port.md](docs/vision-sound-port.md)、[docs/gap-audit-vs-original.md](docs/gap-audit-vs-original.md)。
 
 ## 快速开始
 
@@ -32,7 +32,7 @@ idf.py menuconfig   # IMU SPI 引脚 + Feetech UART
 idf.py build flash monitor
 ```
 
-常用命令：`info` · `policy …` · `imu` · `servo stats|on|off` · `sound list|yes` · `vision status|grab|detect`
+常用命令：`info` · `policy …` · `imu` · `servo stats|on|off` · `sound list|yes|level|record` · `vision status|grab|detect`
 
 ## 配置
 
@@ -55,7 +55,7 @@ components/duck_policy/   板端 INT8 推理
 components/imu/           ICM-42688 SPI
 components/servo_bus/     Feetech STS/HD1910 SyncRead/Write
 components/cmd_bus/       命令块 + EMA
-components/sound/         ES8311 + NS4150B 情绪/cue tag
+components/sound/         ES8311 + NS4150B 播放 + 麦克风采集
 components/vision/        帧总线（synthetic；CSI 未接线）
 main/main.cpp             50 Hz 环
 ```

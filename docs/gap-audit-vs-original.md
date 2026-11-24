@@ -11,7 +11,7 @@
 | IMU → gyro + projected gravity | ICM-42688 SPI + Mahony（契约同 `ImuData`） |
 | 命令块 + EMA（body x/y/yaw=0） | `cmd_bus` + C5 peer-data |
 | 板端策略推理 | P4 INT8 `duck_policy`（非 Linux ONNX） |
-| 声音 tag 播放入口 | **ES8311 + NS4150B** 硬件通路 + tag 合成 cue（见 [vision-sound-port.md](vision-sound-port.md)） |
+| 声音播放 + 麦克风 | **ES8311 + NS4150B**：tag 合成播放 + ADC/`sound_record`（见 [es8311-audio.md](es8311-audio.md)） |
 | 视觉帧总线入口 | **最小等价**：`components/vision` synthetic（同上） |
 
 ## 视觉 / 声音（优先项）— 仍缺
@@ -20,7 +20,7 @@
 |----------|------|
 | mediad 相机 + pipeline + WebRTC | Linux/V4L2；P4 无真实 CSI 驱动接线 |
 | duck-detect / pet-detect / ball | 无 YOLO/RKNN；detect API 占位 |
-| WAV 语音库 + aplay | 无银行；板端合成短音经 ES8311/NS4150B |
+| WAV 语音库 + aplay | 无银行；板端合成短音；麦克风 ADC 已通 |
 | theremin / wheee / chorale | 未移植 |
 | emotion JSON 驱动姿态/表情 | 未移植（仅 tag 名） |
 
