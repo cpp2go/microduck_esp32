@@ -35,6 +35,8 @@
 #include "imu.h"
 #include "policy_output.h"
 #include "shell.h"
+#include "sound.h"
+#include "vision.h"
 
 static const char *kTag = "main";
 
@@ -395,6 +397,62 @@ int CmdReboot(int, char **) {
     return 0; // unreachable
 }
 
+/// `sound <tag|list>`: play a voice-bank tag (I2S tone or log-only).
+int CmdSound(int argc, char **argv) {
+    if (argc < 2) {
+        printf("usage: sound <tag|list>\n");
+        return 1;
+    }
+    if (strcmp(argv[1], "list") == 0) {
+        int n = 0;
+        const char *const *tags = sound_tags(&n);
+        printf("tags (%d):", n);
+        for (int i = 0; i < n; ++i) {
+            printf(" %s", tags[i]);
+        }
+        printf("\navailable=%s hw=%s (ES8311+NS4150B)\n", sound_available() ? "yes" : "no",
+               sound_hw_ready() ? "ready" : "log-only");
+        return 0;
+    }
+    if (!sound_play(argv[1])) {
+        printf("sound play failed (init off?)\n");
+        return 1;
+    }
+    return 0;
+}
+
+/// `vision <status|grab|detect>`: frame-bus bring-up (synthetic until CSI wired).
+int CmdVision(int argc, char **argv) {
+    const char *sub = (argc > 1) ? argv[1] : "status";
+    if (strcmp(sub, "status") == 0) {
+        printf("backend=%s available=%s mean_luma=%d\n", vision_backend_name(),
+               vision_available() ? "yes" : "no", vision_mean_luma());
+        return 0;
+    }
+    if (strcmp(sub, "grab") == 0) {
+        vision_frame_t fr;
+        if (!vision_grab(&fr)) {
+            printf("vision grab failed\n");
+            return 1;
+        }
+        printf("frame seq=%" PRIu64 " %ux%u stride=%u ts_us=%" PRId64 " mean=%d\n", fr.seq,
+               (unsigned)fr.width, (unsigned)fr.height, (unsigned)fr.stride, fr.ts_us,
+               vision_mean_luma());
+        vision_release();
+        return 0;
+    }
+    if (strcmp(sub, "detect") == 0) {
+        vision_detect_t ball{}, pet{};
+        (void)vision_detect_ball(&ball);
+        (void)vision_detect_pet(&pet);
+        printf("ball present=%d  pet present=%d  (YOLO/duck-detect not on P4)\n",
+               ball.present ? 1 : 0, pet.present ? 1 : 0);
+        return 0;
+    }
+    printf("usage: vision <status|grab|detect>\n");
+    return 1;
+}
+
 // esp_console command names are single tokens: one "policy" command
 // dispatches on the subcommand ("policy test", "policy bench 100", ...).
 // Usage: policy <list|use|test|bench [n]|loop [off]|stats>
@@ -451,6 +509,18 @@ extern "C" void app_main(void) {
         ESP_LOGW(kTag, "servo bus offline — proprioception and actuation disabled");
     }
 
+    if (sound_init()) {
+        ESP_LOGI(kTag, "sound cues ready (robotd tag names; WAV bank not on P4)");
+    } else {
+        ESP_LOGW(kTag, "sound offline");
+    }
+
+    if (vision_init()) {
+        ESP_LOGI(kTag, "vision frame bus ready backend=%s", vision_backend_name());
+    } else {
+        ESP_LOGW(kTag, "vision offline");
+    }
+
     QMetrics wr, ws;
     double scale = 0.0;
     const bool pass = GoldenSelfTest(*duck::CurrentModel(), &wr, &ws, &scale);
@@ -480,6 +550,10 @@ extern "C" void app_main(void) {
                             "",        CmdImu});
     g_shell.RegisterCommand({"servo",  "Feetech 1910 bus: stats, emergency torque off/on",
                             "<stats|on|off>", CmdServoDispatch});
+    g_shell.RegisterCommand({"sound",  "Play emotion/cue tag (I2S tone or log-only)",
+                            "<tag|list>", CmdSound});
+    g_shell.RegisterCommand({"vision", "Frame bus: status, synthetic grab, detect stub",
+                            "<status|grab|detect>", CmdVision});
     g_shell.RegisterCommand({"reboot", "Reboot the device", "", CmdReboot});
     g_shell.Start();
 }

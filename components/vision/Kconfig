@@ -1,0 +1,30 @@
+menu "Microduck vision"
+
+    config MICRODUCK_VISION_ENABLE
+        bool "Enable vision frame bus"
+        default y
+        help
+            Provides vision_grab / detect stubs. Default backend is synthetic
+            (no CSI). Full mediad (V4L2 + WebRTC + YOLO) is Linux-only.
+
+    config MICRODUCK_VISION_WIDTH
+        int "Synthetic / capture width"
+        range 32 640
+        default 160
+        depends on MICRODUCK_VISION_ENABLE
+
+    config MICRODUCK_VISION_HEIGHT
+        int "Synthetic / capture height"
+        range 32 480
+        default 120
+        depends on MICRODUCK_VISION_ENABLE
+
+    config MICRODUCK_VISION_CSI_HOOK
+        bool "Compile CSI camera hook stubs (not wired)"
+        default n
+        depends on MICRODUCK_VISION_ENABLE
+        help
+            Placeholder symbols for a future ESP-IDF MIPI-CSI / DVP driver.
+            Does not capture frames yet — document blocker in docs.
+
+endmenu

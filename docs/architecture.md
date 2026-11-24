@@ -31,6 +31,10 @@ Linux (microduck_rl)  训练 → ONNX → bake INT8（主机工具）
 | IMU | `imu_to_dxl` SFLP @200 | **ICM-42688 SPI** + Mahony → 同 ImuData 契约 |
 | `action_scale` / 低通 / 命令 EMA | robotd 默认 | Kconfig 同默认 |
 | 推理 | Linux ONNX Runtime | **P4 INT8 MLP** |
+| 声音 | robotd WAV + aplay | tag → **ES8311 + NS4150B**（[vision-sound-port.md](vision-sound-port.md)） |
+| 视觉 | mediad V4L2 + detect | **最小**：synthetic 帧总线；detect 占位 |
+
+完整缺口表见 [gap-audit-vs-original.md](gap-audit-vs-original.md)。
 
 ## 真机闭环（P4）
 
@@ -59,3 +63,4 @@ Feetech STS @ 1 Mbps（默认）；半双工可用 `DIR` GPIO。
 - 安装姿态下 ICM / 舵机轴系标定（trunk 映射）
 - robotd 技能/站立网络切换
 - 实机 50 Hz 抖动与总线成功率
+- CSI 真相机接线 + 检测；WAV/PCM 资产替换合成 cue（见 vision-sound-port.md）
