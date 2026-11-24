@@ -16,7 +16,8 @@ extern "C" {
 /// Policy observation proprio slots (all joints except mouth).
 #define MICRODUCK_OBS_JOINTS (MICRODUCK_NUM_JOINTS - 1)
 
-/** Dynamixel IDs indexed as joint 0..14 (left leg · neck/head/mouth · right leg). */
+/** Feetech STS/HD1910 bus IDs indexed as joint 0..14 (left leg · neck/head/mouth · right leg).
+ *  Numbering matches the alpha layout used with pollen-robotics/microduck (same slot order). */
 static const uint8_t MICRODUCK_JOINT_IDS[MICRODUCK_NUM_JOINTS] = {
     20, 21, 22, 23, 24, 10, 11, 12, 13, 14, 30, 31, 32, 33, 34,
 };
@@ -40,7 +41,7 @@ static const float MICRODUCK_DEFAULT_POSITION[MICRODUCK_NUM_JOINTS] = {
     -0.4530f,
 };
 
-/** imu_to_dxl v2 on the motor bus (future single-transaction read). */
+/** Original microduck imu_to_dxl ID (not used on this board — local ICM-42688 SPI). */
 #define MICRODUCK_IMU_DXL_ID 200u
 
 /// Physical joint index for policy slot `slot` (mouth skipped in the 14-wide vector).

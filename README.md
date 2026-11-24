@@ -2,86 +2,57 @@
 
 Microduck 在嵌入式侧拆成两颗芯片 + Linux 训练：
 
-- **Linux** — [`microduck_rl`](../microduck_rl)：训练与 ONNX（仅此）
-- **ESP32-P4** — 本工程：50 Hz INT8 策略、IMU、动作输出
+- **Linux** — [`microduck_rl`](../microduck_rl)：训练与 ONNX 导出 / bake（仅此）
+- **ESP32-P4** — 本工程：**板端** 50 Hz INT8 策略、ICM-42688 SPI、飞特 1910 闭环
 - **ESP32-C5** — [`c5_wireless/`](c5_wireless/)：无线与遥控命令（不写策略）
 
-## 与 esp-duck (ESP32-S3) 的差异
+## 与原版 pollen-robotics/microduck 的对齐
 
-| 项目 | esp-duck | microduck_esp32 |
-|------|----------|-------------------|
-| 目标芯片 | ESP32-S3 (Xtensa) | **ESP32-P4** (RISC-V 双核) |
-| 权重放置 | `SPIRAM_RODATA`（CoreS3 8MB QUAD PSRAM） | `SPIRAM_XIP_FROM_PSRAM` |
-| IMU I2C | 硬编码 GPIO 12/11（M5 CoreS3） | **Kconfig 可配**（默认 GPIO 2/3） |
-| 策略 / 工具链 | 相同 `duck_policy` + `bake_policies.py` | 相同（已随仓库拷贝） |
+对照真机路径 [`robotd` + `duck-control`](https://github.com/pollen-robotics/microduck)（**不是**其它 ESP 移植）。本仓库硬件选型与原版不同，观测/控制契约对齐：
 
-推理核心（归一化 → Gemm+ELU MLP → 输出、运行时热切换、golden 自检）未改，便于与真机
-`pollen-robotics/microduck` 运行时对齐。
+| 项目 | 原版 | microduck_esp32 |
+|------|------|-----------------|
+| 控制频率 | 50 Hz | 50 Hz（core 1） |
+| 观测 / 动作 | 61D / 14D（嘴跳过） | 同布局 |
+| 舵机 | Dynamixel XL330 | **飞特 Feetech HD1910M / STS** |
+| 关节读回 | SyncRead Present | SyncRead Pos+Speed @56 |
+| 位置编码 | `(2π·raw/4096)−π` | 相同（4096/圈，中位 2048） |
+| IMU | `imu_to_dxl` @200 | **ICM-42688 SPI** + Mahony |
+| 命令块 / EMA | body x/y/yaw=0；alpha=0.2 | 同 |
+| 推理 | 板载 Linux ONNX | **ESP32-P4 INT8 `duck_policy`** |
+
+详见 [docs/architecture.md](docs/architecture.md)。
 
 ## 快速开始
 
 ```bash
-cd microduck_esp32
-# 需要 ESP-IDF v5.5+，且已安装 esp32p4 工具链
 idf.py set-target esp32p4
+idf.py menuconfig   # IMU SPI 引脚 + Feetech UART
 idf.py build flash monitor
 ```
 
-上电后串口（USB Serial/JTAG）出现 `microduck>` 提示符。常用命令与 esp-duck 相同：
+常用命令：`info` · `policy …` · `imu` · `servo stats|on|off`
 
-- `info` — 芯片、PSRAM、当前策略
-- `policy test` / `policy bench 100` / `policy list` / `policy use <name>`
-- `policy loop [off]` / `policy stats` — 50 Hz 推理环
-- `imu` — BMI270 实时读数（若已接线且 `CONFIG_MICRODUCK_IMU_ENABLE=y`）
+## 配置
 
-## 配置 IMU 引脚
+- **Microduck IMU (ICM-42688 SPI)** — Host / SCLK / MOSI / MISO / CS / Hz  
+  默认：SPI2，SCLK=9 MOSI=8 MISO=10 CS=11 @ 8 MHz
+- **Microduck Feetech bus** — UART、半双工 DIR、P 增益（0..254）、action_scale / 低通
 
-`idf.py menuconfig` → **Microduck IMU (BMI270)**：
-
-- `CONFIG_MICRODUCK_IMU_SDA_GPIO` / `CONFIG_MICRODUCK_IMU_SCL_GPIO` — 按你的 P4 载板修改
-- 无 IMU 时可关闭 `CONFIG_MICRODUCK_IMU_ENABLE`，循环仍跑但陀螺/重力为合成数据
-
-## 烘焙 / 更新策略
-
-与 esp-duck 相同，在项目根目录：
+## 烘焙策略（主机工具 → 板端权重）
 
 ```bash
 python3 tools/bake_policies.py --dir /path/to/onnx --out-dir .
-idf.py build
+idf.py build flash
+sh host_test/run.sh   # golden + obs 布局（不替代板端推理）
 ```
 
-ONNX 来自 `microduck_rl`：
-
-```bash
-cd ../microduck_rl
-uv run scripts/export.py Mjlab-Velocity-Flat-MicroDuck --wandb-run-path <entity/project/run>
-```
-
-默认烘焙 9 个官方策略（`alpha_walking` 为开机默认），见 `tools/bake_policies.py` 中的 `MODELS` 列表。
-
-## 观测布局（与训练一致）
-
-50 Hz 循环中 `main.cpp` 组装的 61 维向量与 `microduck_rl` / 真机运行时一致：
-
-- `[0:3]` 陀螺（trunk，rad/s）
-- `[3:6]` 投影重力（单位向量，直立 ≈ `0, 0, -1`）
-- `[6:48]` 关节位置 / 速度 / 上次动作（14 策略槽，嘴关节不占位）
-- `[48:61]` 命令块（twist + head + body）
-
-`components/servo_bus` 在 50 Hz 环内 **SyncRead/SyncWrite** 15 路 XL330，填充 `obs[6:48]` 并执行 `scatter` + `HOME + action × scale`。
-
-## 目录结构
+## 目录
 
 ```
-components/duck_policy/   INT8 推理 + 烘焙好的 duck_models.cpp
-components/imu/             BMI270 + Mahony（Kconfig 引脚）
-components/shell/           USB 交互 REPL
-main/main.cpp               自检、50 Hz 环、命令注册
-tools/                      extract_policy.py, bake_policies.py
+components/duck_policy/   板端 INT8 推理
+components/imu/           ICM-42688 SPI
+components/servo_bus/     Feetech STS/HD1910 SyncRead/Write
+components/cmd_bus/       命令块 + EMA
+main/main.cpp             50 Hz 环
 ```
-
-## 后续集成建议
-
-1. **舵机 / 状态机**：从 `imu::Poll()` + 编码器读数填充 obs 的关节段，将 `act` 写入 BAM/位置 PD。
-2. **与 C6 协处理器**：若 Wi‑Fi 在外挂 ESP32-C6 上，P4 专注 50 Hz 控制环（参考 xiaozhi-esp32 P4 分区实践）。
-3. **重新烘焙**：每次更换 Hub 上的 ONNX 后必须跑 `bake_policies.py`，否则 golden 自检会拒绝切换。

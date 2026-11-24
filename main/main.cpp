@@ -5,8 +5,8 @@
  * microduck_esp32 — main entry point (ESP32-P4).
  *
  * Boots, verifies the active policy against FP32 ONNX-Runtime golden vectors,
- * runs a 50 Hz inference loop fed by the BMI270 IMU when present (gyro +
- * projected gravity; 15-joint XL330 bus fills obs[6:48] per duck-control/obs.rs),
+ * runs a 50 Hz inference loop fed by the ICM-42688 (SPI) when present (gyro +
+ * projected gravity; 15-joint Feetech 1910 bus fills obs[6:48] per duck-control/obs.rs),
  * and exposes an interactive shell over native USB with runtime policy switching.
  */
 
@@ -113,12 +113,11 @@ bool GoldenSelfTest(const duck::Model &model, QMetrics *worst_rand,
 }
 
 // ---------------------------------------------------------------------------
-// 50 Hz inference loop
+// 50 Hz inference loop (on-device INT8 — same role as robotd + duck-control)
 // ---------------------------------------------------------------------------
-// The IMU channels (gyro, projected gravity) are REAL when imu::Init() succeeds.
-// The 42 joint/last-action channels stay synthetic until
-// servos exist: the point of the loop is timing and end-to-end plumbing, and
-// no servo is driven by anything here.
+// Order matches pollen-robotics/microduck robotd Controller::step:
+//   IMU → Feetech SyncRead proprio → cmd block → INT8 policy → SyncWrite goals.
+// Inference runs entirely on ESP32-P4 (baked duck_policy); host only bakes/tests.
 struct LoopStats {
     std::atomic<bool> running{false};
     std::atomic<int64_t> min_us{INT64_MAX}; // fastest pass in the window
@@ -134,7 +133,7 @@ struct LoopStats {
 LoopStats g_loop;
 float g_obs_ws[2 * duck::kMaxHidden];
 
-/// Core-1 task: IMU + XL330 feedback -> 61D obs -> policy -> Goal Position @ 50 Hz.
+/// Core-1 task: IMU + Feetech 1910 feedback -> 61D obs -> policy -> Goal Position @ 50 Hz.
 void PolicyTask(void *) {
     float obs[duck::kMaxHidden] = {0};
     TickType_t next_wake = xTaskGetTickCount();
@@ -349,7 +348,7 @@ int CmdPolicyUse(int argc, char **argv) {
     return 0;
 }
 
-/// `imu`: live BMI270 readout — tilt the board and watch it move.
+/// `imu`: live ICM-42688 readout — tilt the board and watch it move.
 int CmdServo(int argc, char **argv) {
     const char *sub = (argc > 1) ? argv[1] : "stats";
     if (strcmp(sub, "off") == 0) {
@@ -447,7 +446,7 @@ extern "C" void app_main(void) {
     }
 
     if (servo_bus_init()) {
-        ESP_LOGI(kTag, "XL330 bus online — closed-loop 50 Hz control");
+        ESP_LOGI(kTag, "Feetech 1910 bus online — closed-loop 50 Hz control");
     } else {
         ESP_LOGW(kTag, "servo bus offline — proprioception and actuation disabled");
     }
@@ -477,9 +476,9 @@ extern "C" void app_main(void) {
     g_shell.RegisterCommand({"policy", "List/use baked policies; gate, bench, loop",
                             "<list|use <name>|test|bench [n]|loop [off]|stats>",
                             CmdPolicy});
-    g_shell.RegisterCommand({"imu",    "Live BMI270 readout (tilt the board)",
+    g_shell.RegisterCommand({"imu",    "Live ICM-42688 SPI readout (tilt the board)",
                             "",        CmdImu});
-    g_shell.RegisterCommand({"servo",  "XL330 bus: stats, emergency torque off/on",
+    g_shell.RegisterCommand({"servo",  "Feetech 1910 bus: stats, emergency torque off/on",
                             "<stats|on|off>", CmdServoDispatch});
     g_shell.RegisterCommand({"reboot", "Reboot the device", "", CmdReboot});
     g_shell.Start();

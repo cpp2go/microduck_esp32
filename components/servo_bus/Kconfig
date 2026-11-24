@@ -1,7 +1,7 @@
-menu "Microduck Dynamixel bus (XL330)"
+menu "Microduck Feetech bus (HD1910 / STS)"
 
     config MICRODUCK_SERVO_ENABLE
-        bool "Drive alpha XL330 servos and fill proprioception obs"
+        bool "Drive Feetech 1910 (HD1910M/STS) servos and fill proprioception obs"
         default y
 
     config MICRODUCK_SERVO_UART_NUM
@@ -11,7 +11,7 @@ menu "Microduck Dynamixel bus (XL330)"
         depends on MICRODUCK_SERVO_ENABLE
 
     config MICRODUCK_SERVO_UART_BAUD
-        int "Baud rate"
+        int "Baud rate (STS/HD1910M factory default 1000000)"
         default 1000000
         depends on MICRODUCK_SERVO_ENABLE
 
@@ -22,21 +22,27 @@ menu "Microduck Dynamixel bus (XL330)"
         depends on MICRODUCK_SERVO_ENABLE
 
     config MICRODUCK_SERVO_RX_GPIO
-        int "UART RX GPIO"
+        int "UART RX GPIO (tie to TX for half-duplex TTL if single-wire)"
         range -1 55
         default 19
         depends on MICRODUCK_SERVO_ENABLE
 
     config MICRODUCK_SERVO_DIR_GPIO
-        int "RS485 DE GPIO (-1 = TTL bus, no direction pin)"
+        int "Half-duplex DE/RE GPIO (-1 = no direction pin)"
         range -1 55
         default -1
         depends on MICRODUCK_SERVO_ENABLE
+        help
+            Feetech STS TTL often needs a direction pin when using a transceiver.
+            Set -1 for boards that auto-direction or use separate TX/RX.
 
     config MICRODUCK_SERVO_POSITION_KP
-        int "Position P gain (Dynamixel register, training uses 200)"
-        default 200
+        int "Position P gain (HD1910M Temporary KP @50 / STS P_Coeff @21)"
+        default 32
         depends on MICRODUCK_SERVO_ENABLE
+        help
+            Feetech P coefficient range 0..254 (not Dynamixel Pos_P_Gain 0..16383).
+            Default 32 is a moderate STS starting point; tune on hardware.
 
     config MICRODUCK_SERVO_ACTION_SCALE
         int "Action scale × 1000 (robotd default 0.9 = 900)"
