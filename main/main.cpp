@@ -397,10 +397,10 @@ int CmdReboot(int, char **) {
     return 0; // unreachable
 }
 
-/// `sound <tag|list>`: play a voice-bank tag (I2S tone or log-only).
+/// `sound <list|tag|record [ms]|level [ms]>` — play cues or mic capture.
 int CmdSound(int argc, char **argv) {
     if (argc < 2) {
-        printf("usage: sound <tag|list>\n");
+        printf("usage: sound <list|tag|record [ms]|level [ms]>\n");
         return 1;
     }
     if (strcmp(argv[1], "list") == 0) {
@@ -410,8 +410,54 @@ int CmdSound(int argc, char **argv) {
         for (int i = 0; i < n; ++i) {
             printf(" %s", tags[i]);
         }
-        printf("\navailable=%s hw=%s (ES8311+NS4150B)\n", sound_available() ? "yes" : "no",
-               sound_hw_ready() ? "ready" : "log-only");
+        printf("\navailable=%s play=%s mic=%s rate=%d Hz (ES8311+NS4150B)\n",
+               sound_available() ? "yes" : "no", sound_hw_ready() ? "ready" : "log-only",
+               sound_mic_ready() ? "ready" : "off", sound_sample_rate());
+        return 0;
+    }
+    if (strcmp(argv[1], "record") == 0) {
+        const int ms = (argc > 2) ? atoi(argv[2]) : 500;
+        if (ms <= 0 || ms > 5000) {
+            printf("record ms must be 1..5000\n");
+            return 1;
+        }
+        if (!sound_mic_ready()) {
+            printf("mic not ready\n");
+            return 1;
+        }
+        const int n = (sound_sample_rate() * ms) / 1000;
+        int16_t *buf = static_cast<int16_t *>(malloc(static_cast<size_t>(n) * sizeof(int16_t)));
+        if (!buf) {
+            printf("oom\n");
+            return 1;
+        }
+        const int got = sound_record(buf, n, ms + 300);
+        long long sum = 0;
+        int peak = 0;
+        for (int i = 0; i < got; ++i) {
+            int v = buf[i];
+            if (v < 0) {
+                v = -v;
+            }
+            sum += v;
+            if (v > peak) {
+                peak = v;
+            }
+        }
+        const int mean = got > 0 ? static_cast<int>(sum / got) : 0;
+        printf("record %d/%d frames @ %d Hz, peak=%d mean_abs=%d\n", got, n, sound_sample_rate(), peak,
+               mean);
+        free(buf);
+        return got > 0 ? 0 : 1;
+    }
+    if (strcmp(argv[1], "level") == 0) {
+        const int ms = (argc > 2) ? atoi(argv[2]) : 100;
+        const int peak = sound_mic_level(ms);
+        if (peak < 0) {
+            printf("mic level failed (mic off?)\n");
+            return 1;
+        }
+        printf("mic peak=%d (window %d ms)\n", peak, ms);
         return 0;
     }
     if (!sound_play(argv[1])) {
@@ -550,8 +596,8 @@ extern "C" void app_main(void) {
                             "",        CmdImu});
     g_shell.RegisterCommand({"servo",  "Feetech 1910 bus: stats, emergency torque off/on",
                             "<stats|on|off>", CmdServoDispatch});
-    g_shell.RegisterCommand({"sound",  "Play emotion/cue tag (I2S tone or log-only)",
-                            "<tag|list>", CmdSound});
+    g_shell.RegisterCommand({"sound",  "ES8311 play tags; mic record/level",
+                            "<list|tag|record [ms]|level [ms]>", CmdSound});
     g_shell.RegisterCommand({"vision", "Frame bus: status, synthetic grab, detect stub",
                             "<status|grab|detect>", CmdVision});
     g_shell.RegisterCommand({"reboot", "Reboot the device", "", CmdReboot});

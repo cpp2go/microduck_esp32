@@ -31,7 +31,7 @@ Linux (microduck_rl)  训练 → ONNX → bake INT8（主机工具）
 | IMU | `imu_to_dxl` SFLP @200 | **ICM-42688 SPI** + Mahony → 同 ImuData 契约 |
 | `action_scale` / 低通 / 命令 EMA | robotd 默认 | Kconfig 同默认 |
 | 推理 | Linux ONNX Runtime | **P4 INT8 MLP** |
-| 声音 | robotd WAV + aplay | tag → **ES8311 + NS4150B**（[vision-sound-port.md](vision-sound-port.md)） |
+| 声音 | robotd WAV + aplay | **ES8311+NS4150B** 播放 + 麦克风采集（[es8311-audio.md](es8311-audio.md)） |
 | 视觉 | mediad V4L2 + detect | **最小**：synthetic 帧总线；detect 占位 |
 
 完整缺口表见 [gap-audit-vs-original.md](gap-audit-vs-original.md)。

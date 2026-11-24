@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 //
-// On-device voice cues aligned with pollen-robotics/microduck robotd tags.
-// Hardware path: ES8311 (I2C + I2S DAC) → NS4150B (PA_CTRL GPIO) → speaker.
-// Without HW / on probe failure, play() still logs the tag.
+// ES8311 + NS4150B voice I/O for microduck_esp32:
+//   play:  I2S TX → ES8311 DAC → NS4150B → speaker
+//   mic:   mic → ES8311 ADC → I2S RX → short PCM buffer / level meter
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,16 +15,30 @@ extern "C" {
 
 bool sound_init(void);
 
-/// Play cue by tag (e.g. "yes", "no", "sad"). Non-blocking; cuts previous tone.
 bool sound_play(const char *tag);
-
-/// List known tags (null-terminated array of string pointers).
 const char *const *sound_tags(int *count_out);
 
 bool sound_available(void);
-
-/// True when ES8311 + I2S path is live (not log-only).
+/// True when ES8311 I2S TX (+ PA) path is live.
 bool sound_hw_ready(void);
+/// True when ES8311 ADC + I2S RX mic path is live.
+bool sound_mic_ready(void);
+
+/// Sample rate used by play/record (Hz).
+int sound_sample_rate(void);
+
+/**
+ * Capture mono int16 PCM from the mic into `mono` (max_samples frames).
+ * Internally reads stereo I2S and keeps the left channel.
+ * Returns frames written, or <0 on error. Blocks up to timeout_ms.
+ */
+int sound_record(int16_t *mono, int max_samples, int timeout_ms);
+
+/**
+ * Peak absolute sample over a short live window (ms). 0..32767, or -1 on error.
+ * Mutes the PA briefly to reduce speaker feedback while metering.
+ */
+int sound_mic_level(int window_ms);
 
 #ifdef __cplusplus
 }

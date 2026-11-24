@@ -1,18 +1,24 @@
 menu "Microduck sound (ES8311 + NS4150B)"
 
     config MICRODUCK_SOUND_ENABLE
-        bool "Enable on-board sound cues"
+        bool "Enable on-board sound (play + mic)"
         default y
         help
-            robotd-style voice tags via ES8311 codec + NS4150B amp.
-            Falls back to log-only if codec probe / I2S init fails.
+            ES8311 codec + NS4150B amp. Falls back to log-only play if HW init fails.
 
     config MICRODUCK_SOUND_HW_ENABLE
-        bool "Drive ES8311 (I2C) + I2S TX + NS4150B PA"
+        bool "Drive ES8311 (I2C) + I2S duplex + NS4150B PA"
         default y
         depends on MICRODUCK_SOUND_ENABLE
         help
-            On = real hardware path. Off = log-only simulation.
+            On = real hardware path (TX play + RX mic). Off = log-only play.
+
+    config MICRODUCK_SOUND_MIC_ENABLE
+        bool "Enable ES8311 ADC / microphone (I2S RX)"
+        default y
+        depends on MICRODUCK_SOUND_HW_ENABLE
+        help
+            Opens I2S DIN and powers the analog mic path for record/level.
 
     config MICRODUCK_SOUND_I2C_PORT
         int "I2C port for ES8311"
@@ -67,6 +73,14 @@ menu "Microduck sound (ES8311 + NS4150B)"
         default 9
         depends on MICRODUCK_SOUND_HW_ENABLE
 
+    config MICRODUCK_SOUND_I2S_DIN_GPIO
+        int "I2S DIN GPIO (ES8311 ASDOUT → ESP)"
+        range 0 55
+        default 11
+        depends on MICRODUCK_SOUND_MIC_ENABLE
+        help
+            Waveshare ESP32-P4-Pico ASDOUT: GPIO11.
+
     config MICRODUCK_SOUND_PA_GPIO
         int "NS4150B PA_CTRL GPIO (-1 = unused)"
         range -1 55
@@ -74,7 +88,6 @@ menu "Microduck sound (ES8311 + NS4150B)"
         depends on MICRODUCK_SOUND_HW_ENABLE
         help
             Active-high enable for NS4150B. Waveshare P4 boards use GPIO53.
-            Set -1 if PA is hard-wired always-on.
 
     config MICRODUCK_SOUND_VOLUME
         int "Default DAC volume percent"
@@ -82,7 +95,12 @@ menu "Microduck sound (ES8311 + NS4150B)"
         default 70
         depends on MICRODUCK_SOUND_HW_ENABLE
 
-    # Legacy name kept so old sdkconfig fragments still parse if present.
+    config MICRODUCK_SOUND_MIC_GAIN_DB
+        int "Analog mic PGA gain (dB, steps of 6)"
+        range 0 42
+        default 24
+        depends on MICRODUCK_SOUND_MIC_ENABLE
+
     config MICRODUCK_SOUND_I2S_ENABLE
         bool
         depends on MICRODUCK_SOUND_HW_ENABLE
