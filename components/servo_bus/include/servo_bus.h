@@ -23,10 +23,11 @@ typedef struct {
 bool servo_bus_init(void);
 void servo_bus_torque_enable(bool on);
 
-/// Sync-read all joints (blocking, call from control task only).
+/// Sync-read all Feetech 1910 joints (blocking, call from control task only).
 bool servo_bus_poll(servo_state_t *out);
 
 /// HOME + action_scale × scatter(policy action), with head/leg low-pass (robotd defaults).
+/// Writes Feetech Goal Position (STS @42).
 bool servo_bus_write_goals_rel(const float policy_action[MICRODUCK_POLICY_ACTION_LEN]);
 
 void servo_bus_get_state(servo_state_t *out);

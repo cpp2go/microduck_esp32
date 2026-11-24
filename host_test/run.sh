@@ -23,3 +23,9 @@ echo "== obs layout (original microduck) =="
     -I common/include \
     -o /tmp/microduck_obs_layout_test
 /tmp/microduck_obs_layout_test
+
+echo "== Feetech STS/HD1910 codec =="
+"$CXX" -std=c++20 -O2 -Wall -Wextra \
+    host_test/ft_sts_codec_test.cpp \
+    -o /tmp/microduck_ft_sts_codec_test
+/tmp/microduck_ft_sts_codec_test

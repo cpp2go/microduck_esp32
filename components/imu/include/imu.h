@@ -1,37 +1,32 @@
-// Copyright 2026 ESP-Duck Authors
 // SPDX-License-Identifier: MIT
 //
-// CoreS3 IMU: Bosch BMI270 (accel + gyro) on the internal I2C bus
-// (SDA GPIO12, SCL GPIO11), plus a Mahony attitude filter.
+// Local IMU on ESP32-P4: TDK ICM-42688 over SPI.
 //
-// Produces the two IMU blocks of the Microduck observation contract
-// (see upstream duck-control/src/imu.rs):
-//   gyro            — angular velocity in the trunk frame, rad/s;
+// Fills the two IMU blocks of the Microduck observation contract
+// (pollen-robotics/microduck duck-control/src/imu.rs ImuData):
+//   gyro              — angular velocity in the trunk frame, rad/s;
 //   projected gravity — gravity direction in the trunk frame, UNIT vector,
 //                       upright = [0, 0, -1].
-// The trunk-frame axis mapping of the CoreS3's PCB is identity for now; a
-// physical mount needs the axis/sign constants in imu.cpp re-checked.
+// Original robotd reads an imu_to_dxl@200 SFLP block on the Dynamixel bus;
+// this firmware uses a board-local ICM-42688 + Mahony until that path exists.
 #pragma once
 
 namespace imu {
 
-/// Bring up I2C, probe the BMI270 (0x68 / 0x69), load the init firmware and
-/// enable accel+gyro. Returns false if the chip does not answer (the app may
-/// keep running with synthetic IMU data — check the log).
+/// Bring up SPI, probe WHO_AM_I, soft-reset, enable accel+gyro LN.
+/// Returns false if the chip does not answer (loop may keep synthetic IMU).
 bool Init();
 
-/// Read the sensor and step the attitude filter. Call once per control tick
-/// (50 Hz is plenty; the chip runs at 100/200 Hz internally).
+/// Read accel/gyro and step the attitude filter. Call once per 50 Hz tick.
 void Poll();
 
 /// Angular velocity in rad/s, trunk frame (last Poll).
 const float *GyroRad();
 
-/// Gravity direction in the trunk frame, unit vector, upright [0,0,-1]
-/// (last Poll — the "projected gravity" block of the observation).
+/// Gravity direction in the trunk frame, unit vector, upright [0,0,-1].
 const float *ProjGravity();
 
-/// Raw accelerometer reading in g (last Poll) — diagnostics/shell only.
+/// Raw accelerometer in g (last Poll) — diagnostics/shell only.
 const float *AccelG();
 
 } // namespace imu

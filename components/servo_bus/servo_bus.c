@@ -9,7 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "sdkconfig.h"
-#include "xl330_dxl.h"
+#include "ft_sts.h"
 
 static const char *kTag = "servo_bus";
 
@@ -72,17 +72,17 @@ bool servo_bus_init(void)
     s_action_scale = CONFIG_MICRODUCK_SERVO_ACTION_SCALE / 1000.0f;
     s_head_alpha = CONFIG_MICRODUCK_SERVO_HEAD_LOWPASS / 1000.0f;
     s_leg_alpha = CONFIG_MICRODUCK_SERVO_LEG_LOWPASS / 1000.0f;
-    if (!xl330_bus_init()) {
+    if (!ft_sts_bus_init()) {
         return false;
     }
     int ok = 0;
     for (int i = 0; i < MICRODUCK_NUM_JOINTS; ++i) {
         const uint8_t id = MICRODUCK_JOINT_IDS[i];
-        if (!xl330_ping(id)) {
+        if (!ft_sts_ping(id)) {
             ESP_LOGW(kTag, "joint %d ID %u no ping", i, id);
             continue;
         }
-        if (!xl330_configure_servo(id, (uint16_t)CONFIG_MICRODUCK_SERVO_POSITION_KP)) {
+        if (!ft_sts_configure_servo(id, (uint16_t)CONFIG_MICRODUCK_SERVO_POSITION_KP)) {
             ESP_LOGW(kTag, "joint %d ID %u config failed", i, id);
             continue;
         }
@@ -100,7 +100,7 @@ bool servo_bus_init(void)
     /* robotd Controller::seed_from_pose — last_action = gather(pose − home) so tick 0 is continuous. */
     float pos0[MICRODUCK_NUM_JOINTS];
     float vel0[MICRODUCK_NUM_JOINTS];
-    if (xl330_sync_read_pv(MICRODUCK_JOINT_IDS, MICRODUCK_NUM_JOINTS, pos0, vel0)) {
+    if (ft_sts_sync_read_pv(MICRODUCK_JOINT_IDS, MICRODUCK_NUM_JOINTS, pos0, vel0)) {
         float offsets[MICRODUCK_NUM_JOINTS];
         for (int j = 0; j < MICRODUCK_NUM_JOINTS; ++j) {
             s_state.pos_rad[j] = pos0[j];
@@ -113,7 +113,7 @@ bool servo_bus_init(void)
         s_state.read_ok++;
     }
     ESP_LOGI(
-        kTag, "%d/%d XL330 online (alpha IDs), kp=%d, action_scale=%.3f head_lp=%.2f leg_lp=%.2f", ok,
+        kTag, "%d/%d Feetech 1910 online (alpha IDs), kp=%d, action_scale=%.3f head_lp=%.2f leg_lp=%.2f", ok,
         MICRODUCK_NUM_JOINTS, CONFIG_MICRODUCK_SERVO_POSITION_KP, (double)s_action_scale, (double)s_head_alpha,
         (double)s_leg_alpha);
     return true;
@@ -122,7 +122,7 @@ bool servo_bus_init(void)
 void servo_bus_torque_enable(bool on)
 {
     for (int i = 0; i < MICRODUCK_NUM_JOINTS; ++i) {
-        xl330_set_torque_enable(MICRODUCK_JOINT_IDS[i], on);
+        ft_sts_set_torque_enable(MICRODUCK_JOINT_IDS[i], on);
     }
     s_state.torque_enabled = on;
     ESP_LOGI(kTag, "torque %s", on ? "ON" : "OFF");
@@ -139,7 +139,7 @@ bool servo_bus_poll(servo_state_t *out)
     }
     float pos[MICRODUCK_NUM_JOINTS];
     float vel[MICRODUCK_NUM_JOINTS];
-    bool ok = xl330_sync_read_pv(MICRODUCK_JOINT_IDS, MICRODUCK_NUM_JOINTS, pos, vel);
+    bool ok = ft_sts_sync_read_pv(MICRODUCK_JOINT_IDS, MICRODUCK_NUM_JOINTS, pos, vel);
     if (xSemaphoreTake(s_mux, portMAX_DELAY) != pdTRUE) {
         return false;
     }
@@ -193,7 +193,7 @@ bool servo_bus_write_goals_rel(const float policy_action[MICRODUCK_POLICY_ACTION
     apply_lowpass(goals);
     memcpy(s_prev_goal, goals, sizeof(s_prev_goal));
     xSemaphoreGive(s_mux);
-    return xl330_sync_write_goal_rad(MICRODUCK_JOINT_IDS, goals, MICRODUCK_NUM_JOINTS);
+    return ft_sts_sync_write_goal_rad(MICRODUCK_JOINT_IDS, goals, MICRODUCK_NUM_JOINTS);
 }
 
 void servo_bus_get_state(servo_state_t *out)

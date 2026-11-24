@@ -3,42 +3,31 @@
 | 位置 | 职责 |
 |------|------|
 | Linux `microduck_rl` | 训练、ONNX 导出、bake（主机工具） |
-| **ESP32-P4** | **板端** 50 Hz INT8 策略、IMU、XL330 闭环 |
+| **ESP32-P4** | **板端** 50 Hz INT8 策略、ICM-42688 SPI、飞特 1910 闭环 |
 | **ESP32-C5** | esp_hosted **SDIO 从机**、WiFi、遥控 → P4 |
 
-对齐基准是原版 [pollen-robotics/microduck](https://github.com/pollen-robotics/microduck) 的 `robotd`/`duck-control`，不是其它 ESP 移植。说明见 [docs/architecture.md](docs/architecture.md)。
+对齐基准是原版 [pollen-robotics/microduck](https://github.com/pollen-robotics/microduck) 的观测/控制契约；本板硬件为 **ICM-42688（SPI）+ 飞特 1910（STS）**，不是 XL330 / BMI270。说明见 [docs/architecture.md](docs/architecture.md)。
 
-**P4↔C5 默认 SDIO**（esp_hosted peer-data），不用 UART。
+**P4↔C5 默认 SDIO**（esp_hosted peer-data）。
 
 ## P4 固件
 
 ```bash
-cd microduck_esp32
 idf.py set-target esp32p4
-idf.py menuconfig   # ESP-Hosted SDIO 引脚 + 开发板预设
+idf.py menuconfig   # ICM-42688 SPI 引脚 + Feetech UART
 idf.py build flash monitor
 ```
 
-## C5 从机固件
-
-按 `c5_wireless/README.md` 编译 **esp-hosted-mcu/slave**（`esp32c5`），并入 `esp_hosted_slave_patch/microduck_cmd_publisher.c`。
-
 ## 真机闭环（舵机 + 观测）
 
-50 Hz 环顺序：**SyncRead 关节 → 组 61D 观测 → INT8 策略 → SyncWrite Goal Position**。
+50 Hz：**SyncRead 飞特关节 → 组 61D 观测 → INT8 策略 → SyncWrite Goal Position**。
 
-| 配置 | menuconfig → Microduck Dynamixel bus |
-|------|--------------------------------------|
-| UART 引脚 / 1 Mbps | `SERVO_TX/RX_GPIO` |
-| 电机 ID | alpha 表 `20–24,10–14,30–34`（见 `common/include/microduck_model.h`） |
-| 动作 | `scatter` → `HOME + action × scale`（默认 scale=0.9，head/leg 低通同 robotd） |
+| 配置 | menuconfig |
+|------|------------|
+| IMU | ICM-42688 SPI（SCLK/MOSI/MISO/CS） |
+| 舵机 | Feetech UART / 1 Mbps；ID 表见 `microduck_model.h` |
+| 动作 | `scatter` → `HOME + action × scale`（默认 0.9） |
 
-Shell：`servo stats` · `servo off`（急停断扭矩）· `servo on`。
+Shell：`servo stats` · `servo off` · `servo on` · `imu`。
 
-**上电先** `policy test` **并在支架上确认** `servo off` 可用，再让脚着地。
-
-## 调试
-
-- `policy loop` / `policy stats` — P4 侧 50 Hz  
-- P4 日志 `cmd_sdio: SDIO cmd link ready` 表示 C5 已连通  
-- 仅台架可改 `menuconfig` → Command link → **UART**
+**上电先** `policy test` **并在支架上确认** `servo off` 可用，再着地。
