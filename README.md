@@ -21,6 +21,7 @@ Microduck 在嵌入式侧拆成两颗芯片 + Linux 训练：
 | 命令块 / EMA | body x/y/yaw=0；alpha=0.2 | 同 |
 | 推理 | 板载 Linux ONNX | **ESP32-P4 INT8 `duck_policy`** |
 | 声音 / 视觉 | WAV+aplay / mediad | **ES8311+NS4150B** tag 音效 + synthetic 帧总线 |
+| 距离 / 语音意图 | `tofd`+`autod` / 无 ASR | **ToF 8×8+门控**；ES8311 VAD+频带意图（[tof-voice-control.md](docs/tof-voice-control.md)） |
 
 详见 [docs/architecture.md](docs/architecture.md)、[docs/es8311-audio.md](docs/es8311-audio.md)、[docs/vision-sound-port.md](docs/vision-sound-port.md)、[docs/gap-audit-vs-original.md](docs/gap-audit-vs-original.md)。
 
@@ -32,7 +33,7 @@ idf.py menuconfig   # IMU SPI 引脚 + Feetech UART
 idf.py build flash monitor
 ```
 
-常用命令：`info` · `policy …` · `imu` · `servo stats|on|off` · `sound list|yes|level|record` · `vision status|grab|detect`
+常用命令：`info` · `policy …` · `imu` · `servo …` · `sound …` · `vision …` · `tof …` · `voice …`
 
 ## 配置
 
@@ -57,6 +58,9 @@ components/servo_bus/     Feetech STS 或 Unitree S288
 components/cmd_bus/       命令块 + EMA
 components/sound/         ES8311 + NS4150B 播放 + 麦克风采集
 components/vision/        帧总线（synthetic；CSI 未接线）
+components/tof/           8×8 距离帧 + 避障门控
+components/voice/         麦侧关键词意图（非 ASR）
 main/main.cpp             50 Hz 环
 ```
+
 

@@ -13,6 +13,8 @@
 | 板端策略推理 | P4 INT8 `duck_policy`（非 Linux ONNX） |
 | 声音播放 + 麦克风 | **ES8311 + NS4150B**：tag 合成播放 + ADC/`sound_record`（见 [es8311-audio.md](es8311-audio.md)） |
 | 视觉帧总线入口 | **最小等价**：`components/vision` synthetic（同上） |
+| ToF 距离 + 避障门控 | **最小等价**：`components/tof` 8×8 + autod 式 STOP/REACT（synthetic/inject；见 [tof-voice-control.md](tof-voice-control.md)） |
+| 语音意图 | **最小**：ES8311 VAD+频带模板 → stop/go/sit/stand/quack（**非** ASR；同上） |
 
 ## 视觉 / 声音（优先项）— 仍缺
 
@@ -23,6 +25,8 @@
 | WAV 语音库 + aplay | 无银行；板端合成短音；麦克风 ADC 已通 |
 | theremin / wheee / chorale | 未移植 |
 | emotion JSON 驱动姿态/表情 | 未移植（仅 tag 名） |
+| tofd VL53L8CX 完整 ULD | 仅帧 API + inject/I2C probe；无 ST 固件上传 |
+| pet-detect / 环境声自主 | 未移植；有关键词意图替代路径 |
 
 ## 控制 / 总线仍缺
 
@@ -42,7 +46,7 @@
 
 多数依赖 Linux 用户态或 Radxa 外设，**未** 移植到 P4：
 
-- `autod`（自主/起身/障碍）、`mapd` / `maploc` / `odometry`、`tof`（VL53）
+- `autod`（完整自主/起身；**障碍门控已有最小移植**）、`mapd` / `maploc` / `odometry`、完整 `tof` ULD（VL53L8CX）
 - `btd` / `duck-ble`、`nfc`、`padd` / `pad-imu` / `pad-map`、`netpadd`
 - `configd`、`updater`、`duck-gateway`、`duck-ether`、`duckctl` / `robotctl`
 - `kinematics`（MuJoCo FK 资产）、训练/仿真侧（本仓只消费 bake 权重）

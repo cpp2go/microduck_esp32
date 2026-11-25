@@ -33,6 +33,8 @@ Linux (microduck_rl)  训练 → ONNX → bake INT8（主机工具）
 | 推理 | Linux ONNX Runtime | **P4 INT8 MLP** |
 | 声音 | robotd WAV + aplay | **ES8311+NS4150B** 播放 + 麦克风采集（[es8311-audio.md](es8311-audio.md)） |
 | 视觉 | mediad V4L2 + detect | **最小**：synthetic 帧总线；detect 占位 |
+| 距离 | `tofd` VL53L8CX + `autod` 门控 | **最小**：8×8 + STOP/REACT（[tof-voice-control.md](tof-voice-control.md)） |
+| 语音控机 | 无 ASR；pet-detect / 发声 | **最小**：VAD+频带意图（同上） |
 
 完整缺口表见 [gap-audit-vs-original.md](gap-audit-vs-original.md)。
 
@@ -43,6 +45,7 @@ Linux (microduck_rl)  训练 → ONNX → bake INT8（主机工具）
   ICM-42688 SPI → gyro + projected gravity → obs[0:6]
   Feetech SyncRead → joint_rel/vel → obs[6:34]；last_action → obs[34:48]
   C5 cmd（EMA；body x/y/yaw=0）→ obs[48:61]
+  ToF 门控（可选）缩放/清零 twist
   板端 INT8 policy → action[14]
   scatter → HOME + action×scale（低通）→ SyncWrite Goal @42
 ```
