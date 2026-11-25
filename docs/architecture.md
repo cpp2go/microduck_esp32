@@ -24,7 +24,7 @@ Linux (microduck_rl)  训练 → ONNX → bake INT8（主机工具）
 | 能力 | 原版 | 本固件 |
 |------|------|--------|
 | 61D obs / 14D action | `Observation::build` | 同布局填充 |
-| 关节总线 | Dynamixel XL330 Proto 2.0 | **飞特 Feetech HD1910M / STS（FT-SCS）** |
+| 关节总线 | Dynamixel XL330 Proto 2.0 | **飞特 1910 STS**（默认）或 **宇树 S288**（Kconfig） |
 | 关节读回 | Present 块 SyncRead | SyncRead Pos+Speed @56（4B） |
 | 位置编码 | `(2π·raw/4096)−π`，中位 2048 | 相同几何（1910 也是 4096/圈） |
 | 写目标 | Goal Position | Goal Position @42 |
@@ -49,7 +49,7 @@ Linux (microduck_rl)  训练 → ONNX → bake INT8（主机工具）
 
 连续读失败达阈值则真正 torque off。上电 SyncRead 成功时按 `seed_from_pose` 初始化 `last_action`。
 
-Feetech STS @ 1 Mbps（默认）；半双工可用 `DIR` GPIO。
+Feetech STS @ 1 Mbps（默认）；Unitree S288 @ 6 Mbps（逐 ID 请求–响应，见 [unitree-s288.md](unitree-s288.md)）。半双工可用 `DIR` GPIO。
 
 ## SDIO + peer-data
 

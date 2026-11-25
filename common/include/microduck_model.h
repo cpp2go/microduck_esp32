@@ -22,6 +22,11 @@ static const uint8_t MICRODUCK_JOINT_IDS[MICRODUCK_NUM_JOINTS] = {
     20, 21, 22, 23, 24, 10, 11, 12, 13, 14, 30, 31, 32, 33, 34,
 };
 
+/** Unitree S288 IDs (0–14 only; 15 = broadcast). Same joint slot order as Feetech table. */
+static const uint8_t MICRODUCK_S288_JOINT_IDS[MICRODUCK_NUM_JOINTS] = {
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+};
+
 /// Home pose — must match training `HOME_FRAME` / `DEFAULT_POSITION`.
 static const float MICRODUCK_DEFAULT_POSITION[MICRODUCK_NUM_JOINTS] = {
     0.0f,

@@ -6,7 +6,7 @@
  *
  * Boots, verifies the active policy against FP32 ONNX-Runtime golden vectors,
  * runs a 50 Hz inference loop fed by the ICM-42688 (SPI) when present (gyro +
- * projected gravity; 15-joint Feetech 1910 bus fills obs[6:48] per duck-control/obs.rs),
+ * projected gravity; 15-joint servo bus fills obs[6:48] per duck-control/obs.rs),
  * and exposes an interactive shell over native USB with runtime policy switching.
  */
 
@@ -135,7 +135,7 @@ struct LoopStats {
 LoopStats g_loop;
 float g_obs_ws[2 * duck::kMaxHidden];
 
-/// Core-1 task: IMU + Feetech 1910 feedback -> 61D obs -> policy -> Goal Position @ 50 Hz.
+/// Core-1 task: IMU + servo feedback -> 61D obs -> policy -> joint goals @ 50 Hz.
 void PolicyTask(void *) {
     float obs[duck::kMaxHidden] = {0};
     TickType_t next_wake = xTaskGetTickCount();
@@ -550,7 +550,7 @@ extern "C" void app_main(void) {
     }
 
     if (servo_bus_init()) {
-        ESP_LOGI(kTag, "Feetech 1910 bus online — closed-loop 50 Hz control");
+        ESP_LOGI(kTag, "servo bus online — closed-loop 50 Hz control");
     } else {
         ESP_LOGW(kTag, "servo bus offline — proprioception and actuation disabled");
     }
@@ -594,7 +594,7 @@ extern "C" void app_main(void) {
                             CmdPolicy});
     g_shell.RegisterCommand({"imu",    "Live ICM-42688 SPI readout (tilt the board)",
                             "",        CmdImu});
-    g_shell.RegisterCommand({"servo",  "Feetech 1910 bus: stats, emergency torque off/on",
+    g_shell.RegisterCommand({"servo",  "Servo bus (Feetech/S288): stats, torque off/on",
                             "<stats|on|off>", CmdServoDispatch});
     g_shell.RegisterCommand({"sound",  "ES8311 play tags; mic record/level",
                             "<list|tag|record [ms]|level [ms]>", CmdSound});

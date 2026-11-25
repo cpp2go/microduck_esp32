@@ -3,7 +3,7 @@
 | 位置 | 职责 |
 |------|------|
 | Linux `microduck_rl` | 训练、ONNX 导出、bake（主机工具） |
-| **ESP32-P4** | **板端** 50 Hz INT8 策略、ICM-42688 SPI、飞特 1910 闭环 |
+| **ESP32-P4** | **板端** 50 Hz INT8 策略、ICM-42688 SPI、飞特 1910 / 宇树 S288 闭环 |
 | **ESP32-C5** | esp_hosted **SDIO 从机**、WiFi、遥控 → P4 |
 
 对齐基准是原版 [pollen-robotics/microduck](https://github.com/pollen-robotics/microduck) 的观测/控制契约；本板硬件为 **ICM-42688（SPI）+ 飞特 1910（STS）**，不是 XL330 / BMI270。说明见 [docs/architecture.md](docs/architecture.md)。
@@ -25,7 +25,7 @@ idf.py build flash monitor
 | 配置 | menuconfig |
 |------|------------|
 | IMU | ICM-42688 SPI（SCLK/MOSI/MISO/CS） |
-| 舵机 | Feetech UART / 1 Mbps；ID 表见 `microduck_model.h` |
+| 舵机 | menuconfig 选 Feetech（1 Mbps）或 Unitree S288（6 Mbps）；见 [docs/unitree-s288.md](docs/unitree-s288.md) |
 | 动作 | `scatter` → `HOME + action × scale`（默认 0.9） |
 
 Shell：`servo stats` · `servo off` · `servo on` · `imu` · `sound list|yes|level|record` · `vision status|grab|detect`。

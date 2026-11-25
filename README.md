@@ -14,7 +14,7 @@ Microduck 在嵌入式侧拆成两颗芯片 + Linux 训练：
 |------|------|-----------------|
 | 控制频率 | 50 Hz | 50 Hz（core 1） |
 | 观测 / 动作 | 61D / 14D（嘴跳过） | 同布局 |
-| 舵机 | Dynamixel XL330 | **飞特 Feetech HD1910M / STS** |
+| 舵机 | Dynamixel XL330 | **飞特 1910 STS**（默认）或 **宇树 S288** |
 | 关节读回 | SyncRead Present | SyncRead Pos+Speed @56 |
 | 位置编码 | `(2π·raw/4096)−π` | 相同（4096/圈，中位 2048） |
 | IMU | `imu_to_dxl` @200 | **ICM-42688 SPI** + Mahony |
@@ -38,7 +38,7 @@ idf.py build flash monitor
 
 - **Microduck IMU (ICM-42688 SPI)** — Host / SCLK / MOSI / MISO / CS / Hz  
   默认：SPI2，SCLK=9 MOSI=8 MISO=10 CS=11 @ 8 MHz
-- **Microduck Feetech bus** — UART、半双工 DIR、P 增益（0..254）、action_scale / 低通
+- **Microduck servo bus** — 协议 Feetech 1910 / Unitree S288；UART、DIR、增益、action_scale / 低通（见 [docs/unitree-s288.md](docs/unitree-s288.md)）
 
 ## 烘焙策略（主机工具 → 板端权重）
 
@@ -53,7 +53,7 @@ sh host_test/run.sh   # golden + obs 布局（不替代板端推理）
 ```
 components/duck_policy/   板端 INT8 推理
 components/imu/           ICM-42688 SPI
-components/servo_bus/     Feetech STS/HD1910 SyncRead/Write
+components/servo_bus/     Feetech STS 或 Unitree S288
 components/cmd_bus/       命令块 + EMA
 components/sound/         ES8311 + NS4150B 播放 + 麦克风采集
 components/vision/        帧总线（synthetic；CSI 未接线）
