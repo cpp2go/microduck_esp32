@@ -1,0 +1,42 @@
+menu "Microduck voice control (ES8311 mic)"
+
+    config MICRODUCK_VOICE_ENABLE
+        bool "Enable keyword / intent voice control"
+        default y
+        depends on MICRODUCK_SOUND_ENABLE
+        help
+            VAD + 8-band Goertzel templates over ES8311 mic. Not full ASR.
+            Shell: voice listen | inject <stop|go|sit|stand|quack> | status
+
+    config MICRODUCK_VOICE_AUTOSTART
+        bool "Start listen task at boot"
+        default n
+        depends on MICRODUCK_VOICE_ENABLE
+
+    config MICRODUCK_VOICE_WINDOW_MS
+        int "Utterance capture window (ms)"
+        range 200 1500
+        default 450
+        depends on MICRODUCK_VOICE_ENABLE
+
+    config MICRODUCK_VOICE_VAD_PEAK
+        int "VAD peak threshold (int16 abs)"
+        range 500 20000
+        default 2500
+        depends on MICRODUCK_VOICE_ENABLE
+
+    config MICRODUCK_VOICE_DEBOUNCE_MS
+        int "Debounce after a hit (ms)"
+        range 100 3000
+        default 800
+        depends on MICRODUCK_VOICE_ENABLE
+
+    config MICRODUCK_VOICE_GO_VX
+        int "GO intent forward twist ×1000"
+        range 0 1000
+        default 250
+        depends on MICRODUCK_VOICE_ENABLE
+        help
+            Written into cmd_bus twist.x when intent=go (0.250 m/s default).
+
+endmenu

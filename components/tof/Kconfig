@@ -1,0 +1,50 @@
+menu "Microduck ToF (distance / obstacle)"
+
+    config MICRODUCK_TOF_ENABLE
+        bool "Enable ToF frame bus + obstacle gate"
+        default y
+        help
+            8×8 depth API matching pollen-robotics/microduck tofd (VL53L8CX).
+            Default backend is synthetic/inject; full ST ULD firmware is not on P4.
+
+    config MICRODUCK_TOF_GATE_IN_LOOP
+        bool "Apply obstacle gate to cmd twist in 50 Hz loop"
+        default y
+        depends on MICRODUCK_TOF_ENABLE
+        help
+            Scale/zero twist.x when ahead < REACT_M / STOP_M (autod-style).
+
+    config MICRODUCK_TOF_I2C_PROBE
+        bool "Probe VL53-class sensor on I2C (optional)"
+        default n
+        depends on MICRODUCK_TOF_ENABLE
+        help
+            Soft presence check only. Ranging still uses synthetic/inject until
+            a full ULD port lands. Shares I2C carefully with ES8311.
+
+    config MICRODUCK_TOF_I2C_PORT
+        int "ToF I2C port"
+        range 0 1
+        default 0
+        depends on MICRODUCK_TOF_I2C_PROBE
+
+    config MICRODUCK_TOF_I2C_SDA_GPIO
+        int "ToF I2C SDA GPIO"
+        range 0 55
+        default 7
+        depends on MICRODUCK_TOF_I2C_PROBE
+
+    config MICRODUCK_TOF_I2C_SCL_GPIO
+        int "ToF I2C SCL GPIO"
+        range 0 55
+        default 8
+        depends on MICRODUCK_TOF_I2C_PROBE
+
+    config MICRODUCK_TOF_I2C_ADDR
+        hex "ToF 7-bit I2C address"
+        default 0x29
+        depends on MICRODUCK_TOF_I2C_PROBE
+        help
+            VL53L1X / VL53L8CX default address is 0x29.
+
+endmenu

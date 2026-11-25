@@ -37,3 +37,20 @@ echo "== Unitree S288 codec =="
     -I components/servo_bus/include \
     -o /tmp/microduck_ut_s288_codec_test
 /tmp/microduck_ut_s288_codec_test
+
+echo "== ToF obstacle gate =="
+"$CXX" -std=c++20 -O2 -Wall -Wextra \
+    components/tof/tof_obstacle.c \
+    host_test/tof_obstacle_test.cpp \
+    -I components/tof/include \
+    -o /tmp/microduck_tof_obstacle_test
+/tmp/microduck_tof_obstacle_test
+
+echo "== Voice band matcher =="
+"$CXX" -std=c++20 -O2 -Wall -Wextra \
+    components/voice/voice_match.c \
+    host_test/voice_match_test.cpp \
+    -I components/voice/include \
+    -lm \
+    -o /tmp/microduck_voice_match_test
+/tmp/microduck_voice_match_test

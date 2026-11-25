@@ -36,7 +36,10 @@
 #include "policy_output.h"
 #include "shell.h"
 #include "sound.h"
+#include "tof.h"
 #include "vision.h"
+#include "voice_control.h"
+#include "voice_match.h"
 
 static const char *kTag = "main";
 
@@ -154,6 +157,18 @@ void PolicyTask(void *) {
         servo_bus_write_obs_proprio(obs);
         float act[duck::kMaxHidden];
         cmd_bus_apply_to_obs(obs);
+#if CONFIG_MICRODUCK_TOF_ENABLE && CONFIG_MICRODUCK_TOF_GATE_IN_LOOP
+        {
+            tof_obstacle_t gate{};
+            tof_obstacle_update(&gate);
+            /* Twist lives at obs[48:51]; gate scales/zeros like autod STOP/REACT. */
+            float twist[3] = {obs[48], obs[49], obs[50]};
+            tof_obstacle_apply_twist(&gate, twist);
+            obs[48] = twist[0];
+            obs[49] = twist[1];
+            obs[50] = twist[2];
+        }
+#endif
         duck::Run(obs, act, g_obs_ws);
         float published[MICRODUCK_ACT_DIM];
         for (int j = 0; j < MICRODUCK_ACT_DIM; ++j) {
@@ -467,6 +482,128 @@ int CmdSound(int argc, char **argv) {
     return 0;
 }
 
+/// `tof <status|grab|inject <scene>|gate>` — distance frame + obstacle gate.
+int CmdTof(int argc, char **argv) {
+    const char *sub = (argc > 1) ? argv[1] : "status";
+    if (strcmp(sub, "status") == 0) {
+        tof_obstacle_t g{};
+        tof_obstacle_update(&g);
+        printf("backend=%s available=%s stop_m=%.2f react_m=%.2f\n", tof_backend_name(),
+               tof_available() ? "yes" : "no", tof_stop_m(), tof_react_m());
+        printf("gate ahead=%.2fm away=%+.0f age=%.2fs stop=%d slow=%d scale=%.2f\n", g.ahead_m,
+               g.away, g.age_s, g.stop ? 1 : 0, g.slow ? 1 : 0, g.speed_scale);
+        return 0;
+    }
+    if (strcmp(sub, "grab") == 0) {
+        tof_frame_t fr{};
+        if (!tof_grab(&fr)) {
+            printf("tof grab failed\n");
+            return 1;
+        }
+        uint32_t min_mm = 65535, max_mm = 0;
+        for (int i = 0; i < TOF_ZONE_COUNT; ++i) {
+            if (fr.status[i] == 0 && fr.dist_mm[i] > 0) {
+                if (fr.dist_mm[i] < min_mm) {
+                    min_mm = fr.dist_mm[i];
+                }
+                if (fr.dist_mm[i] > max_mm) {
+                    max_mm = fr.dist_mm[i];
+                }
+            }
+        }
+        printf("frame seq=%" PRIu64 " ts_us=%" PRId64 " min_mm=%u max_mm=%u (8x8)\n", fr.seq,
+               fr.ts_us, (unsigned)(min_mm == 65535 ? 0 : min_mm), (unsigned)max_mm);
+        return 0;
+    }
+    if (strcmp(sub, "inject") == 0) {
+        if (argc < 3) {
+            printf("usage: tof inject <clear|near|wall|left|right>\n");
+            return 1;
+        }
+        if (!tof_inject(argv[2])) {
+            printf("inject failed\n");
+            return 1;
+        }
+        char *args[] = {argv[0], const_cast<char *>("status")};
+        return CmdTof(2, args);
+    }
+    if (strcmp(sub, "gate") == 0) {
+        char *args[] = {argv[0], const_cast<char *>("status")};
+        return CmdTof(2, args);
+    }
+    printf("usage: tof <status|grab|inject <scene>|gate>\n");
+    return 1;
+}
+
+/// `voice <status|listen [off]|inject <intent>|test>` — ES8311 keyword intents.
+int CmdVoice(int argc, char **argv) {
+    const char *sub = (argc > 1) ? argv[1] : "status";
+    if (strcmp(sub, "status") == 0) {
+        printf("available=%s listening=%s last=%s mic=%s\n", voice_available() ? "yes" : "no",
+               voice_listening() ? "yes" : "no", voice_intent_name(voice_last_intent()),
+               sound_mic_ready() ? "ready" : "off");
+        return 0;
+    }
+    if (strcmp(sub, "listen") == 0) {
+        if (argc > 2 && strcmp(argv[2], "off") == 0) {
+            voice_listen_stop();
+            printf("voice listen off\n");
+            return 0;
+        }
+        if (!voice_listen_start()) {
+            printf("voice listen start failed\n");
+            return 1;
+        }
+        printf("voice listen on (speak near mic; or voice inject <intent>)\n");
+        return 0;
+    }
+    if (strcmp(sub, "inject") == 0) {
+        if (argc < 3) {
+            printf("usage: voice inject <stop|go|sit|stand|quack>\n");
+            return 1;
+        }
+        if (!voice_inject(argv[2])) {
+            printf("inject failed\n");
+            return 1;
+        }
+        return 0;
+    }
+    if (strcmp(sub, "test") == 0) {
+        /* Synth each template through the matcher — no mic needed. */
+        const int sr = 16000;
+        const int n = sr / 2;
+        int16_t *buf = static_cast<int16_t *>(malloc(static_cast<size_t>(n) * sizeof(int16_t)));
+        if (!buf) {
+            printf("oom\n");
+            return 1;
+        }
+        int fails = 0;
+        const voice_match_id_t ids[] = {VOICE_MATCH_STOP, VOICE_MATCH_GO, VOICE_MATCH_SIT,
+                                        VOICE_MATCH_STAND, VOICE_MATCH_QUACK};
+        for (voice_match_id_t id : ids) {
+            voice_synth_utterance(id, buf, n, sr);
+            float feat[VOICE_FEAT_DIM];
+            float score = 0.f;
+            if (!voice_extract_feat(buf, n, feat)) {
+                printf("%s: extract FAIL\n", voice_match_name(id));
+                ++fails;
+                continue;
+            }
+            const voice_match_id_t got = voice_match_feat(feat, &score);
+            const bool ok = got == id;
+            printf("%s: match=%s score=%.3f %s\n", voice_match_name(id), voice_match_name(got),
+                   score, ok ? "OK" : "FAIL");
+            if (!ok) {
+                ++fails;
+            }
+        }
+        free(buf);
+        return fails == 0 ? 0 : 1;
+    }
+    printf("usage: voice <status|listen [off]|inject <intent>|test>\n");
+    return 1;
+}
+
 /// `vision <status|grab|detect>`: frame-bus bring-up (synthetic until CSI wired).
 int CmdVision(int argc, char **argv) {
     const char *sub = (argc > 1) ? argv[1] : "status";
@@ -512,6 +649,47 @@ int CmdPolicy(int argc, char **argv) {
     if (strcmp(sub, "use") == 0) return CmdPolicyUse(argc - 1, argv + 1);
     printf("usage: policy <list|use <name>|test|bench [n]|loop [off]|stats>\n");
     return 1;
+}
+
+void OnVoiceIntent(voice_intent_t intent, void *) {
+    microduck_command_block_t cmd = MICRODUCK_COMMAND_IDLE;
+    uint32_t seq = 0;
+    cmd_bus_get(&cmd, &seq);
+    switch (intent) {
+    case VOICE_INTENT_STOP:
+        cmd.twist[0] = 0.f;
+        cmd.twist[1] = 0.f;
+        cmd.twist[2] = 0.f;
+        cmd_bus_set(&cmd, seq + 1);
+        (void)sound_play("no");
+        break;
+    case VOICE_INTENT_GO: {
+#if defined(CONFIG_MICRODUCK_VOICE_GO_VX)
+        const float vx = CONFIG_MICRODUCK_VOICE_GO_VX / 1000.0f;
+#else
+        const float vx = 0.25f;
+#endif
+        cmd.twist[0] = vx;
+        cmd.twist[1] = 0.f;
+        cmd.twist[2] = 0.f;
+        cmd_bus_set(&cmd, seq + 1);
+        (void)sound_play("yes");
+        break;
+    }
+    case VOICE_INTENT_SIT:
+        (void)shell::Execute("policy use alpha_sitstand");
+        (void)sound_play("curious");
+        break;
+    case VOICE_INTENT_STAND:
+        (void)shell::Execute("policy use alpha_stand");
+        (void)sound_play("yes");
+        break;
+    case VOICE_INTENT_QUACK:
+        (void)sound_play("hello");
+        break;
+    default:
+        break;
+    }
 }
 
 } // namespace
@@ -567,6 +745,24 @@ extern "C" void app_main(void) {
         ESP_LOGW(kTag, "vision offline");
     }
 
+    if (tof_init()) {
+        ESP_LOGI(kTag, "tof frame bus ready backend=%s", tof_backend_name());
+    } else {
+        ESP_LOGW(kTag, "tof offline");
+    }
+
+    if (voice_init()) {
+        voice_set_callback(OnVoiceIntent, nullptr);
+        ESP_LOGI(kTag, "voice control ready (VAD+templates; no Whisper ASR)");
+#if CONFIG_MICRODUCK_VOICE_AUTOSTART
+        if (voice_listen_start()) {
+            ESP_LOGI(kTag, "voice listen autostart");
+        }
+#endif
+    } else {
+        ESP_LOGW(kTag, "voice control offline");
+    }
+
     QMetrics wr, ws;
     double scale = 0.0;
     const bool pass = GoldenSelfTest(*duck::CurrentModel(), &wr, &ws, &scale);
@@ -600,6 +796,9 @@ extern "C" void app_main(void) {
                             "<list|tag|record [ms]|level [ms]>", CmdSound});
     g_shell.RegisterCommand({"vision", "Frame bus: status, synthetic grab, detect stub",
                             "<status|grab|detect>", CmdVision});
-    g_shell.RegisterCommand({"reboot", "Reboot the device", "", CmdReboot});
+    g_shell.RegisterCommand({"tof", "ToF 8x8 + obstacle gate (tofd/autod-style)",
+                            "<status|grab|inject <scene>|gate>", CmdTof});
+    g_shell.RegisterCommand({"voice", "Mic keyword intents (or inject)",
+                            "<status|listen [off]|inject <intent>|test>", CmdVoice});
     g_shell.Start();
 }

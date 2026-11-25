@@ -28,8 +28,8 @@ idf.py build flash monitor
 | 舵机 | menuconfig 选 Feetech（1 Mbps）或 Unitree S288（6 Mbps）；见 [docs/unitree-s288.md](docs/unitree-s288.md) |
 | 动作 | `scatter` → `HOME + action × scale`（默认 0.9） |
 
-Shell：`servo stats` · `servo off` · `servo on` · `imu` · `sound list|yes|level|record` · `vision status|grab|detect`。
+Shell：`servo stats` · `imu` · `sound …` · `vision …` · `tof status|inject` · `voice listen|inject|test`。
 
-声音：**ES8311 + NS4150B** 播放与麦克风（见 [docs/es8311-audio.md](docs/es8311-audio.md)）；视觉为 synthetic 帧总线。缺口见 [docs/gap-audit-vs-original.md](docs/gap-audit-vs-original.md)。
+声音：**ES8311 + NS4150B**（[docs/es8311-audio.md](docs/es8311-audio.md)）；距离/语音意图见 [docs/tof-voice-control.md](docs/tof-voice-control.md)。缺口见 [docs/gap-audit-vs-original.md](docs/gap-audit-vs-original.md)。
 
 **上电先** `policy test` **并在支架上确认** `servo off` 可用，再着地。
