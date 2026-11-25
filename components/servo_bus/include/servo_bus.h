@@ -23,11 +23,12 @@ typedef struct {
 bool servo_bus_init(void);
 void servo_bus_torque_enable(bool on);
 
-/// Sync-read all Feetech 1910 joints (blocking, call from control task only).
+/// Sync-read / sequential poll all joints (blocking, control task only).
+/// Feetech: SyncRead Pos+Speed. Unitree S288: per-ID cmd→fbk round-trip.
 bool servo_bus_poll(servo_state_t *out);
 
 /// HOME + action_scale × scatter(policy action), with head/leg low-pass (robotd defaults).
-/// Writes Feetech Goal Position (STS @42).
+/// Feetech: SyncWrite Goal @42. Unitree S288: FOC position cmd per ID.
 bool servo_bus_write_goals_rel(const float policy_action[MICRODUCK_POLICY_ACTION_LEN]);
 
 void servo_bus_get_state(servo_state_t *out);

@@ -29,3 +29,11 @@ echo "== Feetech STS/HD1910 codec =="
     host_test/ft_sts_codec_test.cpp \
     -o /tmp/microduck_ft_sts_codec_test
 /tmp/microduck_ft_sts_codec_test
+
+echo "== Unitree S288 codec =="
+"$CXX" -std=c++20 -O2 -Wall -Wextra \
+    components/servo_bus/ut_s288_codec.c \
+    host_test/ut_s288_codec_test.cpp \
+    -I components/servo_bus/include \
+    -o /tmp/microduck_ut_s288_codec_test
+/tmp/microduck_ut_s288_codec_test

@@ -1,8 +1,23 @@
-menu "Microduck Feetech bus (HD1910 / STS)"
+menu "Microduck servo bus"
 
     config MICRODUCK_SERVO_ENABLE
-        bool "Drive Feetech 1910 (HD1910M/STS) servos and fill proprioception obs"
+        bool "Drive servos and fill proprioception obs"
         default y
+
+    choice MICRODUCK_SERVO_BACKEND
+        prompt "Servo bus protocol"
+        default MICRODUCK_SERVO_BACKEND_FEETECH
+        depends on MICRODUCK_SERVO_ENABLE
+        help
+            Feetech HD1910/STS uses FT-SCS SyncRead/Write @ 1 Mbps.
+            Unitree S288 uses 20/26-byte CRC frames @ 6 Mbps (no SyncRead).
+
+        config MICRODUCK_SERVO_BACKEND_FEETECH
+            bool "Feetech 1910 (STS / HD1910M)"
+
+        config MICRODUCK_SERVO_BACKEND_UNITREE_S288
+            bool "Unitree S288 / J288"
+    endchoice
 
     config MICRODUCK_SERVO_UART_NUM
         int "UART port"
@@ -11,9 +26,12 @@ menu "Microduck Feetech bus (HD1910 / STS)"
         depends on MICRODUCK_SERVO_ENABLE
 
     config MICRODUCK_SERVO_UART_BAUD
-        int "Baud rate (STS/HD1910M factory default 1000000)"
-        default 1000000
+        int "Baud rate"
+        default 1000000 if MICRODUCK_SERVO_BACKEND_FEETECH
+        default 6000000 if MICRODUCK_SERVO_BACKEND_UNITREE_S288
         depends on MICRODUCK_SERVO_ENABLE
+        help
+            Feetech factory default 1 Mbps. Unitree S288 protocol is fixed at 6 Mbps.
 
     config MICRODUCK_SERVO_TX_GPIO
         int "UART TX GPIO"
@@ -32,17 +50,27 @@ menu "Microduck Feetech bus (HD1910 / STS)"
         range -1 55
         default -1
         depends on MICRODUCK_SERVO_ENABLE
-        help
-            Feetech STS TTL often needs a direction pin when using a transceiver.
-            Set -1 for boards that auto-direction or use separate TX/RX.
 
     config MICRODUCK_SERVO_POSITION_KP
-        int "Position P gain (HD1910M Temporary KP @50 / STS P_Coeff @21)"
+        int "Feetech Position P gain (Temporary KP @50 / P_Coeff @21)"
         default 32
-        depends on MICRODUCK_SERVO_ENABLE
+        depends on MICRODUCK_SERVO_ENABLE && MICRODUCK_SERVO_BACKEND_FEETECH
         help
-            Feetech P coefficient range 0..254 (not Dynamixel Pos_P_Gain 0..16383).
-            Default 32 is a moderate STS starting point; tune on hardware.
+            Feetech P coefficient range 0..254.
+
+    config MICRODUCK_SERVO_S288_KP_MILLI
+        int "Unitree S288 Kp × 1000 (output N·m/rad)"
+        default 10000
+        depends on MICRODUCK_SERVO_ENABLE && MICRODUCK_SERVO_BACKEND_UNITREE_S288
+        help
+            Output-shaft stiffness. 10000 = Kp 10.0 (see Unitree digital_servo demo).
+
+    config MICRODUCK_SERVO_S288_KD_MILLI
+        int "Unitree S288 Kd × 1000 (output N·m/(rad/s))"
+        default 1000
+        depends on MICRODUCK_SERVO_ENABLE && MICRODUCK_SERVO_BACKEND_UNITREE_S288
+        help
+            Output-shaft damping. 1000 = Kd 1.0.
 
     config MICRODUCK_SERVO_ACTION_SCALE
         int "Action scale × 1000 (robotd default 0.9 = 900)"
