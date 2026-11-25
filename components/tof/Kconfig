@@ -5,7 +5,6 @@ menu "Microduck ToF (distance / obstacle)"
         default y
         help
             8×8 depth API matching pollen-robotics/microduck tofd (VL53L8CX).
-            Default backend is synthetic/inject; full ST ULD firmware is not on P4.
 
     config MICRODUCK_TOF_GATE_IN_LOOP
         bool "Apply obstacle gate to cmd twist in 50 Hz loop"
@@ -14,13 +13,23 @@ menu "Microduck ToF (distance / obstacle)"
         help
             Scale/zero twist.x when ahead < REACT_M / STOP_M (autod-style).
 
-    config MICRODUCK_TOF_I2C_PROBE
-        bool "Probe VL53-class sensor on I2C (optional)"
+    config MICRODUCK_TOF_ULD
+        bool "Compile ST VL53L8CX Ultra Lite Driver (full ranging)"
         default n
         depends on MICRODUCK_TOF_ENABLE
         help
-            Soft presence check only. Ranging still uses synthetic/inject until
-            a full ULD port lands. Shares I2C carefully with ES8311.
+            Vendors the original microduck tof/vendor VL53L8CX ULD (~550 KB
+            firmware blob in .rodata) with an ESP-IDF I2C platform. Enable when
+            a VL53L8CX is wired and flash budget allows. When off, synthetic/
+            inject remains the backend (API surface identical).
+
+    config MICRODUCK_TOF_I2C_PROBE
+        bool "Probe / open VL53 on I2C"
+        default y
+        depends on MICRODUCK_TOF_ENABLE
+        help
+            Soft presence check always. With MICRODUCK_TOF_ULD, also uploads
+            firmware and starts 8×8 ranging at 15 Hz.
 
     config MICRODUCK_TOF_I2C_PORT
         int "ToF I2C port"
@@ -45,6 +54,12 @@ menu "Microduck ToF (distance / obstacle)"
         default 0x29
         depends on MICRODUCK_TOF_I2C_PROBE
         help
-            VL53L1X / VL53L8CX default address is 0x29.
+            VL53L8CX default address is 0x29.
+
+    config MICRODUCK_TOF_RANGE_HZ
+        int "ULD ranging frequency (Hz)"
+        range 1 15
+        default 15
+        depends on MICRODUCK_TOF_ULD
 
 endmenu

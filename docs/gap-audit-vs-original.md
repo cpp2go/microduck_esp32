@@ -1,67 +1,53 @@
 # 原版 microduck vs 本仓缺口盘点
 
 基准仓库：[`pollen-robotics/microduck`](https://github.com/pollen-robotics/microduck)（Radxa Linux + Dynamixel XL330 + `imu_to_dxl`）。  
-本仓：`cpp2go/microduck_esp32`（ESP32-P4 INT8 + **ICM-42688 SPI** + **飞特 1910 STS** + C5 无线）。
+本仓：`cpp2go/microduck_esp32`（ESP32-P4 INT8 + **ICM-42688 SPI** + **飞特 1910 / 宇树 S288** + C5 无线）。
+
+刷新：2026-11-25（相对 PR #1–#6 后再移植一轮）。
 
 ## 已对齐 / 已移植
 
 | 项 | 状态 |
 |----|------|
-| 61D obs / 14D act / 50 Hz 环序 | 已对齐（`obs` 布局 + Feetech SyncRead/Write） |
-| IMU → gyro + projected gravity | ICM-42688 SPI + Mahony（契约同 `ImuData`） |
-| 命令块 + EMA（body x/y/yaw=0） | `cmd_bus` + C5 peer-data |
-| 板端策略推理 | P4 INT8 `duck_policy`（非 Linux ONNX） |
-| 声音播放 + 麦克风 | **ES8311 + NS4150B**：tag 合成播放 + ADC/`sound_record`（见 [es8311-audio.md](es8311-audio.md)） |
-| 视觉帧总线入口 | **最小等价**：`components/vision` synthetic（同上） |
-| ToF 距离 + 避障门控 | **最小等价**：`components/tof` 8×8 + autod 式 STOP/REACT（synthetic/inject；见 [tof-voice-control.md](tof-voice-control.md)） |
-| 语音意图 | **最小**：ES8311 VAD+频带模板 → stop/go/sit/stand/quack（**非** ASR；同上） |
+| 61D obs / 14D act / 50 Hz 环序 | 已对齐 |
+| IMU → gyro + projected gravity | ICM-42688 SPI + Mahony；**另有 200 Hz fast task**（SPI 等价 `imu_to_dxl@200`） |
+| 命令块 + EMA | `cmd_bus` + C5 peer-data |
+| 板端策略推理 | P4 INT8 `duck_policy` |
+| 声音播放 + 麦克风 | ES8311 + NS4150B；**PCM 银行**（robotd emotion WAV→16 kHz）+ synth 回退 |
+| Emotion JSON 关键帧 | `components/emotion`（robotd/emotions/*.json） |
+| Theremin（ToF 远近→音高/嘴） | `components/theremin` |
+| 视觉帧总线入口 | 最小 synthetic / detect stub |
+| ToF 距离 + 避障门控 | `components/tof` + autod 式 STOP/REACT |
+| VL53L8CX 完整 ULD | **已厂商化**（`vendor/vl53l8cx` + ESP-IDF I2C platform）；`MICRODUCK_TOF_ULD` 默认关（固件 ~550 KB），开启后真测距 |
+| 语音意图 | ES8311 VAD+频带（非 ASR；原版也无 ASR） |
+| **技能状态机** | `components/skills`：walk/stand/sit/rise/ground_pick/kick/roulade/roller → 切换 bake 网络 |
+| **Fall / safety** | `components/safety`：FallPredictor + fallen + NaN/±π clamp |
+| Posture 粗分类 | `components/posture`（tilt + 关节折叠启发式；无 MuJoCo FK） |
+| 50 Hz 校验助手 | `loop_validate` + shell `validate` |
 
-## 视觉 / 声音（优先项）— 仍缺
+## 仍缺 / 刻意不做
 
-| 原版能力 | 缺口 |
+| 原版能力 | 说明 |
 |----------|------|
-| mediad 相机 + pipeline + WebRTC | Linux/V4L2；P4 无真实 CSI 驱动接线 |
-| duck-detect / pet-detect / ball | 无 YOLO/RKNN；detect API 占位 |
-| WAV 语音库 + aplay | 无银行；板端合成短音；麦克风 ADC 已通 |
-| theremin / wheee / chorale | 未移植 |
-| emotion JSON 驱动姿态/表情 | 未移植（仅 tag 名） |
-| tofd VL53L8CX 完整 ULD | 仅帧 API + inject/I2C probe；无 ST 固件上传 |
-| pet-detect / 环境声自主 | 未移植；有关键词意图替代路径 |
+| mediad / WebRTC / 真 CSI | Linux/V4L2；P4 未接相机 pipeline |
+| duck-detect / pet-detect / ball YOLO | 无 RKNN/YOLO 权重；detect API 仍占位 |
+| chorale / wheee 全合成人格 | theremin 最小版已有；完整 MIDI/人格栈未搬 |
+| pickup CNN（ORT） | 训练侧 ORT 模型；板端不跑 FP ORT |
+| Dynamixel fast sync / 0x8A | 飞特 STS 无此指令 |
+| idle_head / head_imu（头模 LSM6） | 需第二颗 IMU 硬件 |
+| LEDs / laser | 需原版 I²C 扩展器 / 激光外设 |
+| soccer 全栈 | 缺球检测；kick bake 已可经 `skill kick` 触发 |
+| Linux 守护进程整机 | autod 完整、mapd、btd、nfc、padd、updater、gateway、configd… |
+| 训练 / 仿真 / kinematics MuJoCo | PC-only |
 
-## 控制 / 总线仍缺
+## 硬件刻意差异（不是漏移植）
 
-| 原版 | 说明 |
+| 原版 | 本仓 |
 |------|------|
-| **技能状态机**（`robotd/src/control.rs`） | walk/stand/sit/rise、kick、roulade、ground_pick、可配置 skill 窗口与网络切换 — 本仓仅单策略 loop |
-| **多网络调度**（stand / sitstand / skill） | 权重可 bake 并用 `policy use` 手动切换；**无** robotd 按意图自动选网 |
-| **`imu_to_dxl` @200 Hz** | 原版 IMU 经舵机总线旁路融合；本板 ICM 直连 SPI，**无** 200 Hz `imu_to_dxl` 路径（有意不同硬件） |
-| **Dynamixel fast sync / 0x8A** | XL330 Proto 2.0 特性；飞特 STS 用 Pos+Speed SyncRead + Goal SyncWrite，**无** 0x8A |
-| pickup / fall / safety 完整逻辑 | duck-control 有；本仓仅连续读失败 torque-off 等基础安全 |
-| standing gain / skill tuning（`robotd-params`） | 未移植参数表与运行时切换 |
-| head idle / head IMU 行为 | `idle_head.rs` / `head_imu.rs` 未移植 |
-| LEDs / laser | 未移植 |
-| soccer / intents / posture 高层 | 未移植 |
+| Dynamixel XL330 | 飞特 1910 / 宇树 S288 |
+| `imu_to_dxl` @200 on DXL bus | ICM-42688 SPI @200 Hz task |
+| Linux ONNX Runtime | P4 INT8 bake |
 
-## 原版其它守护进程 / 板级外设（整机能力，非本 PR 范围）
+## Shell 速查（本轮新增）
 
-多数依赖 Linux 用户态或 Radxa 外设，**未** 移植到 P4：
-
-- `autod`（完整自主/起身；**障碍门控已有最小移植**）、`mapd` / `maploc` / `odometry`、完整 `tof` ULD（VL53L8CX）
-- `btd` / `duck-ble`、`nfc`、`padd` / `pad-imu` / `pad-map`、`netpadd`
-- `configd`、`updater`、`duck-gateway`、`duck-ether`、`duckctl` / `robotctl`
-- `kinematics`（MuJoCo FK 资产）、训练/仿真侧（本仓只消费 bake 权重）
-
-## 硬件刻意差异（不是“漏移植”）
-
-| 原版 | 本仓（约束） |
-|------|----------------|
-| Dynamixel XL330 | 飞特 Feetech 1910 STS |
-| BMI/`imu_to_dxl` 链 | ICM-42688 SPI |
-| Linux ONNX Runtime | **P4 板端 INT8** |
-
-## 建议后续优先级
-
-1. 真机 CSI（或外置 USB 相机经主机）接到 `vision_grab`，再决定板端轻量检测 vs 主机检测。  
-2. 嵌入短 PCM/WAV 替代合成 cue（硬件通路已就位）。  
-3. 技能状态机 + 多网络 bake（stand/sit），与原版 `control.rs` 调度对齐。  
-4. 标定 ICM/舵机轴系与 trunk 映射。
+`skill` · `emotion` · `theremin` · `posture` · `validate` · `imu fast` · `sound list`（`*`=银行）

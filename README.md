@@ -20,8 +20,10 @@ Microduck 在嵌入式侧拆成两颗芯片 + Linux 训练：
 | IMU | `imu_to_dxl` @200 | **ICM-42688 SPI** + Mahony |
 | 命令块 / EMA | body x/y/yaw=0；alpha=0.2 | 同 |
 | 推理 | 板载 Linux ONNX | **ESP32-P4 INT8 `duck_policy`** |
-| 声音 / 视觉 | WAV+aplay / mediad | **ES8311+NS4150B** tag 音效 + synthetic 帧总线 |
-| 距离 / 语音意图 | `tofd`+`autod` / 无 ASR | **ToF 8×8+门控**；ES8311 VAD+频带意图（[tof-voice-control.md](docs/tof-voice-control.md)） |
+| 声音 / 视觉 | WAV+aplay / mediad | **ES8311+NS4150B** PCM 银行+synth；emotion JSON；synthetic 帧总线 |
+| 技能 / 安全 | robotd control + fall/safety | **skills** 调度 bake 网；FallPredictor + clamp |
+| IMU 速率 | `imu_to_dxl` @200 | ICM SPI **200 Hz fast task** |
+| 距离 / 语音意图 | `tofd`+`autod` / 无 ASR | **ToF 8×8+门控**（可选 VL53L8CX ULD）；VAD+频带意图 |
 
 详见 [docs/architecture.md](docs/architecture.md)、[docs/es8311-audio.md](docs/es8311-audio.md)、[docs/vision-sound-port.md](docs/vision-sound-port.md)、[docs/gap-audit-vs-original.md](docs/gap-audit-vs-original.md)。
 
@@ -33,7 +35,7 @@ idf.py menuconfig   # IMU SPI 引脚 + Feetech UART
 idf.py build flash monitor
 ```
 
-常用命令：`info` · `policy …` · `imu` · `servo …` · `sound …` · `vision …` · `tof …` · `voice …`
+常用命令：`info` · `policy …` · `imu [fast]` · `servo …` · `sound …` · `skill …` · `emotion …` · `theremin …` · `posture` · `validate` · `vision …` · `tof …` · `voice …`
 
 ## 配置
 
