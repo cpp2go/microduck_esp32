@@ -54,3 +54,35 @@ echo "== Voice band matcher =="
     -lm \
     -o /tmp/microduck_voice_match_test
 /tmp/microduck_voice_match_test
+
+echo "== Safety / fall predictor =="
+"$CXX" -std=c++20 -O2 -Wall -Wextra \
+    host_test/safety_fall_test.cpp \
+    -I components/safety/include \
+    -lm \
+    -o /tmp/microduck_safety_fall_test
+/tmp/microduck_safety_fall_test
+
+echo "== Skills priority mirror =="
+"$CXX" -std=c++20 -O2 -Wall -Wextra \
+    host_test/skills_test.cpp \
+    -I components/skills/include \
+    -lm \
+    -o /tmp/microduck_skills_test
+/tmp/microduck_skills_test
+
+echo "== Loop validate helper =="
+"$CXX" -std=c++20 -O2 -Wall -Wextra \
+    host_test/loop_validate_test.cpp \
+    -I components/control/include \
+    -lm \
+    -o /tmp/microduck_loop_validate_test
+/tmp/microduck_loop_validate_test
+
+echo "== Posture classify =="
+"$CXX" -std=c++20 -O2 -Wall -Wextra \
+    host_test/posture_test.cpp \
+    -I components/posture/include \
+    -lm \
+    -o /tmp/microduck_posture_test
+/tmp/microduck_posture_test

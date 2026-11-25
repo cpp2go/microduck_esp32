@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "sound.h"
+#include "sound_bank.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -256,48 +257,112 @@ const char *const *sound_tags(int *count_out)
     return kTags;
 }
 
+static bool play_pcm_mono(const int16_t *mono, int frames)
+{
+#if CONFIG_MICRODUCK_SOUND_HW_ENABLE
+    if (!s_hw || !s_tx || !mono || frames <= 0) {
+        return false;
+    }
+    pa_set(true);
+    (void)es8311_codec_mute_dac(&s_codec, false);
+    enum { BLOCK = 256 };
+    int16_t buf[BLOCK * 2];
+    int produced = 0;
+    while (produced < frames) {
+        const int n = (frames - produced) > BLOCK ? BLOCK : (frames - produced);
+        for (int i = 0; i < n; ++i) {
+            const int16_t v = mono[produced + i];
+            buf[i * 2] = v;
+            buf[i * 2 + 1] = v;
+        }
+        size_t written = 0;
+        (void)i2s_channel_write(s_tx, buf, (size_t)n * 2 * sizeof(int16_t), &written,
+                                pdMS_TO_TICKS(500));
+        produced += n;
+    }
+    return true;
+#else
+    (void)mono;
+    (void)frames;
+    return false;
+#endif
+}
+
+static bool play_synth_hz(float hz, int ms)
+{
+#if CONFIG_MICRODUCK_SOUND_HW_ENABLE
+    if (!s_hw || !s_tx || hz <= 0.f || ms <= 0) {
+        return false;
+    }
+    pa_set(true);
+    (void)es8311_codec_mute_dac(&s_codec, false);
+    const int frames = (kSampleHz * ms) / 1000;
+    enum { BLOCK = 256 };
+    int16_t buf[BLOCK * 2];
+    int produced = 0;
+    while (produced < frames) {
+        const int n = (frames - produced) > BLOCK ? BLOCK : (frames - produced);
+        for (int i = 0; i < n; ++i) {
+            const int idx = produced + i;
+            float t = (float)idx / (float)kSampleHz;
+            float env = 1.0f;
+            const int attack = frames / 10;
+            const int release = frames / 5;
+            if (idx < attack) {
+                env = (float)idx / (float)(attack ? attack : 1);
+            } else if (idx > frames - release) {
+                env = (float)(frames - idx) / (float)(release ? release : 1);
+            }
+            float s = sinf(2.0f * (float)M_PI * hz * t);
+            s += 0.25f * sinf(4.0f * (float)M_PI * hz * t);
+            int16_t v = (int16_t)(s * 10000.0f * env);
+            buf[i * 2] = v;
+            buf[i * 2 + 1] = v;
+        }
+        size_t written = 0;
+        (void)i2s_channel_write(s_tx, buf, (size_t)n * 2 * sizeof(int16_t), &written,
+                                pdMS_TO_TICKS(500));
+        produced += n;
+    }
+    return true;
+#else
+    (void)hz;
+    (void)ms;
+    return false;
+#endif
+}
+
+bool sound_bank_has(const char *tag) { return sound_bank_find(tag) != NULL; }
+
+bool sound_play_tone(float hz, int ms)
+{
+    if (!s_up || hz <= 0.f || ms <= 0) {
+        return false;
+    }
+    ESP_LOGI(kTag, "tone %.0f Hz %d ms%s", (double)hz, ms, s_hw ? "" : " [log-only]");
+    (void)play_synth_hz(hz, ms);
+    return true;
+}
+
 bool sound_play(const char *tag)
 {
     if (!s_up || !tag || !*tag) {
         return false;
     }
+
+    const sound_bank_clip_t *clip = sound_bank_find(tag);
+    if (clip && clip->pcm && clip->samples > 0) {
+        ESP_LOGI(kTag, "play tag='%s' bank %u samples @%d Hz%s", tag, (unsigned)clip->samples,
+                 kSampleHz, s_hw ? "" : " [log-only]");
+        (void)play_pcm_mono(clip->pcm, (int)clip->samples);
+        return true;
+    }
+
     const float hz = tag_hz(tag);
     const int ms = tag_ms(tag);
-    ESP_LOGI(kTag, "play tag='%s' (%.0f Hz, %d ms)%s", tag, (double)hz, ms, s_hw ? "" : " [log-only]");
-
-#if CONFIG_MICRODUCK_SOUND_HW_ENABLE
-    if (s_hw && s_tx) {
-        pa_set(true);
-        (void)es8311_codec_mute_dac(&s_codec, false);
-        const int frames = (kSampleHz * ms) / 1000;
-        enum { BLOCK = 256 };
-        int16_t buf[BLOCK * 2];
-        int produced = 0;
-        while (produced < frames) {
-            const int n = (frames - produced) > BLOCK ? BLOCK : (frames - produced);
-            for (int i = 0; i < n; ++i) {
-                const int idx = produced + i;
-                float t = (float)idx / (float)kSampleHz;
-                float env = 1.0f;
-                const int attack = frames / 10;
-                const int release = frames / 5;
-                if (idx < attack) {
-                    env = (float)idx / (float)(attack ? attack : 1);
-                } else if (idx > frames - release) {
-                    env = (float)(frames - idx) / (float)(release ? release : 1);
-                }
-                float s = sinf(2.0f * (float)M_PI * hz * t);
-                s += 0.25f * sinf(4.0f * (float)M_PI * hz * t);
-                int16_t v = (int16_t)(s * 10000.0f * env);
-                buf[i * 2] = v;
-                buf[i * 2 + 1] = v;
-            }
-            size_t written = 0;
-            (void)i2s_channel_write(s_tx, buf, (size_t)n * 2 * sizeof(int16_t), &written, pdMS_TO_TICKS(500));
-            produced += n;
-        }
-    }
-#endif
+    ESP_LOGI(kTag, "play tag='%s' synth (%.0f Hz, %d ms)%s", tag, (double)hz, ms,
+             s_hw ? "" : " [log-only]");
+    (void)play_synth_hz(hz, ms);
     return true;
 }
 

@@ -16,7 +16,11 @@ extern "C" {
 bool sound_init(void);
 
 bool sound_play(const char *tag);
+/// Play raw mono tone (Hz) for ms via I2S DAC; falls back to log-only.
+bool sound_play_tone(float hz, int ms);
 const char *const *sound_tags(int *count_out);
+/// True if tag has an embedded PCM bank clip (robotd emotion WAV).
+bool sound_bank_has(const char *tag);
 
 bool sound_available(void);
 /// True when ES8311 I2S TX (+ PA) path is live.

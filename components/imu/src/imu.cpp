@@ -8,7 +8,9 @@
 #include "imu.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 
 #include "driver/gpio.h"
@@ -40,10 +42,11 @@ constexpr uint8_t REG_BANK_SEL = 0x76;
 constexpr uint8_t WHO_AM_I_42688_P = 0x47;
 constexpr uint8_t WHO_AM_I_42688 = 0xDB; // some ICM-42688 markings
 
-// GYRO_CONFIG0: FS_SEL[7:5]=000 → ±2000 dps; ODR[3:0]=0110 → 1 kHz (use 100 Hz = 0x08)
-// ACCEL_CONFIG0: FS_SEL[7:5]=000 → ±16 g default; we set 011 → ±2 g; ODR 100 Hz = 0x08
-constexpr uint8_t GYRO_FS_2000_ODR_100 = 0x08;   // FS=±2000 (bits 7:5 = 000), ODR=100 Hz
-constexpr uint8_t ACCEL_FS_2G_ODR_100 = 0x68;    // FS=±2g (011), ODR=100 Hz
+// GYRO/ACCEL ODR nibble: 0x07 = 200 Hz, 0x08 = 100 Hz (TDK DS-000347).
+constexpr uint8_t GYRO_FS_2000_ODR_200 = 0x07;
+constexpr uint8_t ACCEL_FS_2G_ODR_200 = 0x67;
+constexpr uint8_t GYRO_FS_2000_ODR_100 = 0x08;
+constexpr uint8_t ACCEL_FS_2G_ODR_100 = 0x68;
 
 // ±2000 dps → 16.4 LSB/dps; ±2 g → 16384 LSB/g
 constexpr float kGyrLsbDps = 16.4f;
@@ -55,10 +58,18 @@ bool s_up = false;
 float s_gyro[3] = {0};
 float s_accel[3] = {0};
 float s_gravity[3] = {0, 0, -1};
+portMUX_TYPE s_spin = portMUX_INITIALIZER_UNLOCKED;
 
 constexpr float kTwoKp = 2.0f;
 float q0 = 1, q1 = 0, q2 = 0, q3 = 0;
 int64_t s_last_us = 0;
+
+std::atomic<bool> s_fast_running{false};
+std::atomic<int64_t> s_fast_ticks{0};
+std::atomic<int64_t> s_fast_misses{0};
+std::atomic<int64_t> s_fast_min{INT64_MAX};
+std::atomic<int64_t> s_fast_max{0};
+std::atomic<int64_t> s_fast_sum{0};
 
 bool spi_xfer(const uint8_t *tx, uint8_t *rx, size_t len)
 {
@@ -145,12 +156,14 @@ bool Init()
         return false;
     }
 
-    // Gyro ±2000 dps @ 100 Hz, accel ±2 g @ 100 Hz, both Low-Noise.
-    if (!write_reg(REG_GYRO_CONFIG0, GYRO_FS_2000_ODR_100) ||
-        !write_reg(REG_ACCEL_CONFIG0, ACCEL_FS_2G_ODR_100)) {
+    // Gyro ±2000 dps @ 200 Hz, accel ±2 g @ 200 Hz — matches original imu_to_dxl@200 rate.
+    if (!write_reg(REG_GYRO_CONFIG0, GYRO_FS_2000_ODR_200) ||
+        !write_reg(REG_ACCEL_CONFIG0, ACCEL_FS_2G_ODR_200)) {
         ESP_LOGE(kTag, "config write failed");
         return false;
     }
+    (void)GYRO_FS_2000_ODR_100;
+    (void)ACCEL_FS_2G_ODR_100;
     // PWR_MGMT0: GYRO_MODE=LN (10), ACCEL_MODE=LN (11) → 0x0B
     if (!write_reg(REG_PWR_MGMT0, 0x0B)) {
         ESP_LOGE(kTag, "PWR_MGMT0 failed");
@@ -197,22 +210,19 @@ void Poll()
     const int16_t gy = be16(raw + 10);
     const int16_t gz = be16(raw + 12);
 
-    s_accel[0] = ax / kAccLsbG;
-    s_accel[1] = ay / kAccLsbG;
-    s_accel[2] = az / kAccLsbG;
-    s_gyro[0] = gx / kGyrLsbDps * kRadPerDps;
-    s_gyro[1] = gy / kGyrLsbDps * kRadPerDps;
-    s_gyro[2] = gz / kGyrLsbDps * kRadPerDps;
+    float accel[3] = {ax / kAccLsbG, ay / kAccLsbG, az / kAccLsbG};
+    float gyro[3] = {gx / kGyrLsbDps * kRadPerDps, gy / kGyrLsbDps * kRadPerDps,
+                     gz / kGyrLsbDps * kRadPerDps};
 
     const int64_t now = esp_timer_get_time();
-    float dt = 0.02f;
+    float dt = 0.005f;
     if (s_last_us != 0) {
         dt = (now - s_last_us) / 1e6f;
         dt = std::clamp(dt, 0.001f, 0.1f);
     }
     s_last_us = now;
 
-    float an[3] = {s_accel[0], s_accel[1], s_accel[2]};
+    float an[3] = {accel[0], accel[1], accel[2]};
     const float anorm = std::sqrt(an[0] * an[0] + an[1] * an[1] + an[2] * an[2]);
     if (anorm > 1e-4f) {
         an[0] /= anorm;
@@ -228,7 +238,7 @@ void Poll()
         q2 += kTwoKp * ey * dt * 0.5f;
         q3 += kTwoKp * ez * dt * 0.5f;
     }
-    const float hx = s_gyro[0], hy = s_gyro[1], hz = s_gyro[2];
+    const float hx = gyro[0], hy = gyro[1], hz = gyro[2];
     const float dq0 = 0.5f * (-q1 * hx - q2 * hy - q3 * hz);
     const float dq1 = 0.5f * (q0 * hx + q2 * hz - q3 * hy);
     const float dq2 = 0.5f * (q0 * hy - q1 * hz + q3 * hx);
@@ -244,13 +254,95 @@ void Poll()
     q3 /= qn;
 
     // Projected gravity = Rᵀ(q)·[0,0,-1] — same upright convention as obs.rs.
-    s_gravity[0] = -(2.0f * (q1 * q3 - q0 * q2));
-    s_gravity[1] = -(2.0f * (q0 * q1 + q2 * q3));
-    s_gravity[2] = -(q0 * q0 - q1 * q1 - q2 * q2 + q3 * q3);
+    const float grav[3] = {-(2.0f * (q1 * q3 - q0 * q2)), -(2.0f * (q0 * q1 + q2 * q3)),
+                           -(q0 * q0 - q1 * q1 - q2 * q2 + q3 * q3)};
+
+    portENTER_CRITICAL(&s_spin);
+    memcpy(s_accel, accel, sizeof(s_accel));
+    memcpy(s_gyro, gyro, sizeof(s_gyro));
+    memcpy(s_gravity, grav, sizeof(s_gravity));
+    portEXIT_CRITICAL(&s_spin);
 }
 
 const float *GyroRad() { return s_gyro; }
 const float *ProjGravity() { return s_gravity; }
 const float *AccelG() { return s_accel; }
+
+void Snapshot(float gyro_out[3], float gravity_out[3])
+{
+    portENTER_CRITICAL(&s_spin);
+    if (gyro_out) {
+        memcpy(gyro_out, s_gyro, sizeof(s_gyro));
+    }
+    if (gravity_out) {
+        memcpy(gravity_out, s_gravity, sizeof(s_gravity));
+    }
+    portEXIT_CRITICAL(&s_spin);
+}
+
+static void FastTask(void *)
+{
+    TickType_t next = xTaskGetTickCount();
+    while (s_fast_running.load(std::memory_order_relaxed)) {
+        const int64_t t0 = esp_timer_get_time();
+        Poll();
+        const int64_t dt = esp_timer_get_time() - t0;
+        s_fast_ticks.fetch_add(1, std::memory_order_relaxed);
+        s_fast_sum.fetch_add(dt, std::memory_order_relaxed);
+        if (dt > 5000) {
+            s_fast_misses.fetch_add(1, std::memory_order_relaxed);
+        }
+        int64_t mn = s_fast_min.load(std::memory_order_relaxed);
+        while (dt < mn && !s_fast_min.compare_exchange_weak(mn, dt)) {
+        }
+        int64_t mx = s_fast_max.load(std::memory_order_relaxed);
+        while (dt > mx && !s_fast_max.compare_exchange_weak(mx, dt)) {
+        }
+        vTaskDelayUntil(&next, pdMS_TO_TICKS(5)); /* 200 Hz */
+    }
+    vTaskDelete(nullptr);
+}
+
+bool StartFastTask()
+{
+    if (!s_up) {
+        return false;
+    }
+    if (s_fast_running.exchange(true)) {
+        return true;
+    }
+    s_fast_ticks = 0;
+    s_fast_misses = 0;
+    s_fast_min = INT64_MAX;
+    s_fast_max = 0;
+    s_fast_sum = 0;
+    /* Core 1 with policy; 200 Hz is light SPI reads. */
+    xTaskCreatePinnedToCore(FastTask, "imu200", 4096, nullptr, 6, nullptr, 1);
+    ESP_LOGI(kTag, "IMU fast task @200 Hz (SPI stand-in for imu_to_dxl@200)");
+    return true;
+}
+
+void StopFastTask() { s_fast_running = false; }
+
+bool FastTaskRunning() { return s_fast_running.load(); }
+
+void FastStats(int64_t *ticks, int64_t *misses, int64_t *min_us, int64_t *max_us, int64_t *sum_us)
+{
+    if (ticks) {
+        *ticks = s_fast_ticks.load();
+    }
+    if (misses) {
+        *misses = s_fast_misses.load();
+    }
+    if (min_us) {
+        *min_us = s_fast_min.load();
+    }
+    if (max_us) {
+        *max_us = s_fast_max.load();
+    }
+    if (sum_us) {
+        *sum_us = s_fast_sum.load();
+    }
+}
 
 } // namespace imu

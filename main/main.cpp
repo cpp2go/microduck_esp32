@@ -32,10 +32,16 @@
 #include "cmd_link.h"
 #include "servo_bus.h"
 #include "duck_policy.hpp"
+#include "emotion.h"
 #include "imu.h"
+#include "loop_validate.h"
 #include "policy_output.h"
+#include "posture.h"
+#include "safety.h"
 #include "shell.h"
+#include "skills.h"
 #include "sound.h"
+#include "theremin.h"
 #include "tof.h"
 #include "vision.h"
 #include "voice_control.h"
@@ -137,46 +143,109 @@ struct LoopStats {
 // policy; every baked model fits.
 LoopStats g_loop;
 float g_obs_ws[2 * duck::kMaxHidden];
+fall_predictor_t g_fall;
+safety_state_t g_safety;
+loop_validate_t g_loop_val;
+std::atomic<bool> g_limp{false};
 
-/// Core-1 task: IMU + servo feedback -> 61D obs -> policy -> joint goals @ 50 Hz.
+/// Core-1 task: IMU + servo feedback -> 61D obs -> skills net -> policy -> goals @ 50 Hz.
 void PolicyTask(void *) {
     float obs[duck::kMaxHidden] = {0};
     TickType_t next_wake = xTaskGetTickCount();
     int64_t window_ticks = 0;
+    constexpr float kDt = 0.02f;
 
     while (g_loop.running.load(std::memory_order_relaxed)) {
         int64_t t0 = esp_timer_get_time();
-        imu::Poll();
-        const float *gyro = imu::GyroRad();
-        const float *grav = imu::ProjGravity();
+        float gyro[3], grav[3];
+        if (imu::FastTaskRunning()) {
+            imu::Snapshot(gyro, grav);
+        } else {
+            imu::Poll();
+            const float *g = imu::GyroRad();
+            const float *p = imu::ProjGravity();
+            for (int i = 0; i < 3; ++i) {
+                gyro[i] = g[i];
+                grav[i] = p[i];
+            }
+        }
         for (int i = 0; i < 3; ++i) {
             obs[i] = gyro[i];
             obs[3 + i] = grav[i];
         }
+
+        const bool falling = fall_predictor_observe(&g_fall, gyro, grav, kDt);
+        (void)safety_observe_gravity(&g_safety, grav[2], kDt);
+        if (falling) {
+            g_limp.store(true);
+            fall_predictor_reset(&g_fall);
+            ESP_LOGW(kTag, "fall predictor fired — limp");
+        }
+        if (!safety_fallen(&g_safety) && g_limp.load()) {
+            /* clear limp once upright again */
+            g_limp.store(false);
+        }
+
         (void)servo_bus_poll(nullptr);
         servo_bus_write_obs_proprio(obs);
         float act[duck::kMaxHidden];
         cmd_bus_apply_to_obs(obs);
+
+        skill_command_t scmd{};
+        scmd.twist[0] = obs[48];
+        scmd.twist[1] = obs[49];
+        scmd.twist[2] = obs[50];
+        scmd.body_active = false;
+        scmd.twist_stand_thresh = 0.05f;
+        skill_step_t step{};
+        skills_step(&scmd, kDt, &step);
+        (void)skills_apply_net(&step);
+        obs[48] = step.effective_twist[0];
+        obs[49] = step.effective_twist[1];
+        obs[50] = step.effective_twist[2];
+
 #if CONFIG_MICRODUCK_TOF_ENABLE && CONFIG_MICRODUCK_TOF_GATE_IN_LOOP
         {
             tof_obstacle_t gate{};
             tof_obstacle_update(&gate);
-            /* Twist lives at obs[48:51]; gate scales/zeros like autod STOP/REACT. */
             float twist[3] = {obs[48], obs[49], obs[50]};
             tof_obstacle_apply_twist(&gate, twist);
             obs[48] = twist[0];
             obs[49] = twist[1];
             obs[50] = twist[2];
+            if (theremin_active()) {
+                theremin_note_t note = theremin_from_ahead_m(gate.ahead_m);
+                /* mouth slot is not in 14D act; keep note for shell/status */
+                (void)note;
+            }
         }
 #endif
+
+        emotion_pose_t emo{};
+        emotion_step(kDt, &emo);
+        if (emo.active) {
+            /* Overlay head intent slots in command block region when emotion plays. */
+            obs[51] = emo.neck;
+            obs[52] = emo.head_pitch;
+            obs[53] = emo.head_yaw;
+            obs[54] = emo.head_roll;
+        }
+
         duck::Run(obs, act, g_obs_ws);
         float published[MICRODUCK_ACT_DIM];
         for (int j = 0; j < MICRODUCK_ACT_DIM; ++j) {
-            published[j] = act[j];
+            published[j] = act[j] * step.action_scale;
         }
+        if (g_limp.load()) {
+            for (int j = 0; j < MICRODUCK_ACT_DIM; ++j) {
+                published[j] *= 0.25f; /* soft limp like gain_limp */
+            }
+        }
+        (void)safety_clamp_targets(published, MICRODUCK_ACT_DIM);
         microduck_policy_set_actions(published);
         (void)servo_bus_write_goals_rel(published);
         int64_t dt = esp_timer_get_time() - t0;
+        loop_validate_record(&g_loop_val, dt);
         (void)window_ticks;
 
         int64_t prev_min = g_loop.min_us.load(std::memory_order_relaxed);
@@ -188,7 +257,6 @@ void PolicyTask(void *) {
         g_loop.ticks.fetch_add(1, std::memory_order_relaxed);
         ++window_ticks;
 
-        // Period 20 ms measured from wake to wake, inference time included.
         vTaskDelayUntil(&next_wake, pdMS_TO_TICKS(20));
     }
     vTaskDelete(nullptr);
@@ -201,6 +269,7 @@ void StartPolicyLoop() {
     g_loop.sum_us = 0;
     g_loop.misses = 0;
     g_loop.ticks = 0;
+    loop_validate_reset(&g_loop_val, 20000);
     // Core 1 keeps the shell REPL responsive on core 0 (P4 is dual-core RISC-V).
     xTaskCreatePinnedToCore(PolicyTask, "policy", 12288, nullptr, 5, nullptr, 1);
 }
@@ -396,13 +465,40 @@ int CmdServoDispatch(int argc, char **argv) {
     return CmdServo(argc, argv);
 }
 
-int CmdImu(int, char **) {
+int CmdImu(int argc, char **argv) {
+    if (argc > 1 && strcmp(argv[1], "fast") == 0) {
+        if (argc > 2 && strcmp(argv[2], "off") == 0) {
+            imu::StopFastTask();
+            printf("IMU 200 Hz task stopping\n");
+            return 0;
+        }
+        if (!imu::StartFastTask()) {
+            printf("IMU fast start failed (offline?)\n");
+            return 1;
+        }
+        printf("IMU 200 Hz task running (SPI stand-in for imu_to_dxl@200)\n");
+        return 0;
+    }
+    if (argc > 1 && strcmp(argv[1], "stats") == 0) {
+        int64_t ticks = 0, misses = 0, mn = 0, mx = 0, sum = 0;
+        imu::FastStats(&ticks, &misses, &mn, &mx, &sum);
+        if (ticks == 0) {
+            printf("IMU fast idle — 'imu fast' starts it\n");
+            return 1;
+        }
+        printf("imu200 ticks %lld misses(>5ms) %lld min/avg/max %.2f/%.2f/%.2f ms running=%s\n",
+               (long long)ticks, (long long)misses, mn / 1e3,
+               sum / 1e3 / (double)ticks, mx / 1e3,
+               imu::FastTaskRunning() ? "yes" : "no");
+        return 0;
+    }
     const float *a = imu::AccelG();
     const float *g = imu::GyroRad();
     const float *p = imu::ProjGravity();
     printf("accel g   : %+.3f %+.3f %+.3f\n", a[0], a[1], a[2]);
     printf("gyro rad/s: %+.3f %+.3f %+.3f\n", g[0], g[1], g[2]);
     printf("proj grav : %+.3f %+.3f %+.3f (upright = 0 0 -1)\n", p[0], p[1], p[2]);
+    printf("fast200   : %s\n", imu::FastTaskRunning() ? "on" : "off");
     return 0;
 }
 
@@ -423,9 +519,10 @@ int CmdSound(int argc, char **argv) {
         const char *const *tags = sound_tags(&n);
         printf("tags (%d):", n);
         for (int i = 0; i < n; ++i) {
-            printf(" %s", tags[i]);
+            printf(" %s%s", tags[i], sound_bank_has(tags[i]) ? "*" : "");
         }
-        printf("\navailable=%s play=%s mic=%s rate=%d Hz (ES8311+NS4150B)\n",
+        printf("\n(* = PCM bank from robotd/emotions WAV)\n");
+        printf("available=%s play=%s mic=%s rate=%d Hz (ES8311+NS4150B)\n",
                sound_available() ? "yes" : "no", sound_hw_ready() ? "ready" : "log-only",
                sound_mic_ready() ? "ready" : "off", sound_sample_rate());
         return 0;
@@ -517,7 +614,7 @@ int CmdTof(int argc, char **argv) {
     }
     if (strcmp(sub, "inject") == 0) {
         if (argc < 3) {
-            printf("usage: tof inject <clear|near|wall|left|right>\n");
+            printf("usage: tof inject <clear|near|wall|left|right|live>\n");
             return 1;
         }
         if (!tof_inject(argv[2])) {
@@ -651,6 +748,137 @@ int CmdPolicy(int argc, char **argv) {
     return 1;
 }
 
+int CmdSkill(int argc, char **argv) {
+    if (argc < 2) {
+        printf("usage: skill <status|walk|stand|sit|rise|ground_pick|kick|kick_right|roulade|roller>\n");
+        return 1;
+    }
+    if (strcmp(argv[1], "status") == 0) {
+        printf("driving=%s sit=%d limp=%s fallen=%s\n", skills_driving_label(),
+               (int)skills_sit_state(), g_limp.load() ? "yes" : "no",
+               safety_fallen(&g_safety) ? "yes" : "no");
+        return 0;
+    }
+    if (!skills_force(argv[1])) {
+        printf("unknown skill mode '%s'\n", argv[1]);
+        return 1;
+    }
+    printf("skill -> %s (driving=%s)\n", argv[1], skills_driving_label());
+    return 0;
+}
+
+int CmdEmotion(int argc, char **argv) {
+    if (argc < 2) {
+        printf("usage: emotion <list|play <name>|stop|status>\n");
+        return 1;
+    }
+    if (strcmp(argv[1], "list") == 0) {
+        size_t n = 0;
+        const emotion_clip_t *c = emotion_clips(&n);
+        printf("emotions (%u):", (unsigned)n);
+        for (size_t i = 0; i < n; ++i) {
+            printf(" %s", c[i].name);
+        }
+        printf("\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "stop") == 0) {
+        emotion_stop();
+        return 0;
+    }
+    if (strcmp(argv[1], "status") == 0) {
+        printf("emotion active=%s name=%s\n", emotion_active() ? "yes" : "no",
+               emotion_current_name() ? emotion_current_name() : "-");
+        return 0;
+    }
+    if (strcmp(argv[1], "play") == 0) {
+        if (argc < 3) {
+            printf("usage: emotion play <name>\n");
+            return 1;
+        }
+        if (!emotion_play(argv[2])) {
+            printf("unknown emotion '%s'\n", argv[2]);
+            return 1;
+        }
+        (void)sound_play(argv[2]);
+        return 0;
+    }
+    printf("usage: emotion <list|play <name>|stop|status>\n");
+    return 1;
+}
+
+int CmdTheremin(int argc, char **argv) {
+    if (argc < 2) {
+        printf("usage: theremin <up|down|status|beep>\n");
+        return 1;
+    }
+    if (strcmp(argv[1], "up") == 0) {
+        theremin_set_active(true);
+        printf("theremin up\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "down") == 0) {
+        theremin_set_active(false);
+        printf("theremin down\n");
+        return 0;
+    }
+    if (strcmp(argv[1], "beep") == 0) {
+        tof_obstacle_t gate{};
+        tof_obstacle_update(&gate);
+        theremin_set_active(true);
+        theremin_note_t n = theremin_from_ahead_m(gate.ahead_m);
+        if (n.note_hz <= 0.f) {
+            n.note_hz = 440.f;
+        }
+        (void)theremin_beep(n.note_hz, 200);
+        printf("beep %.0f Hz closeness=%.2f ahead=%.2f m\n", (double)n.note_hz,
+               (double)n.closeness, (double)gate.ahead_m);
+        return 0;
+    }
+    if (strcmp(argv[1], "status") == 0) {
+        tof_obstacle_t gate{};
+        tof_obstacle_update(&gate);
+        theremin_note_t n = theremin_from_ahead_m(gate.ahead_m);
+        printf("active=%s ahead=%.2f m closeness=%.2f hz=%.0f mouth=%.2f\n",
+               theremin_active() ? "yes" : "no", (double)gate.ahead_m, (double)n.closeness,
+               (double)n.note_hz, (double)n.mouth);
+        return 0;
+    }
+    printf("usage: theremin <up|down|status|beep>\n");
+    return 1;
+}
+
+int CmdPosture(int, char **) {
+    float grav[3];
+    imu::Snapshot(nullptr, grav);
+    if (!imu::FastTaskRunning()) {
+        const float *p = imu::ProjGravity();
+        grav[0] = p[0];
+        grav[1] = p[1];
+        grav[2] = p[2];
+    }
+    servo_state_t st{};
+    servo_bus_get_state(&st);
+    posture_reading_t r = posture_classify(grav, st.pos_rel);
+    printf("posture=%s tilt=%.1f deg gravity_z=%+.3f\n", posture_name(r.posture),
+           (double)r.tilt_deg, (double)r.gravity_z);
+    return 0;
+}
+
+int CmdValidate(int, char **) {
+    const int64_t ticks = g_loop_val.ticks;
+    if (ticks == 0) {
+        printf("no loop samples — start with 'policy loop'\n");
+        return 1;
+    }
+    const double avg = loop_validate_avg_us(&g_loop_val);
+    const bool ok = loop_validate_ok(&g_loop_val, 0.25, 0.05);
+    printf("50 Hz validate: ticks %lld overruns %lld min/avg/max %.2f/%.2f/%.2f ms — %s\n",
+           (long long)ticks, (long long)g_loop_val.overruns, g_loop_val.min_us / 1e3, avg / 1e3,
+           g_loop_val.max_us / 1e3, ok ? "OK" : "CHECK");
+    return ok ? 0 : 1;
+}
+
 void OnVoiceIntent(voice_intent_t intent, void *) {
     microduck_command_block_t cmd = MICRODUCK_COMMAND_IDLE;
     uint32_t seq = 0;
@@ -677,14 +905,20 @@ void OnVoiceIntent(voice_intent_t intent, void *) {
         break;
     }
     case VOICE_INTENT_SIT:
-        (void)shell::Execute("policy use alpha_sitstand");
+        (void)skills_force("sit");
+        (void)emotion_play("curious");
         (void)sound_play("curious");
         break;
     case VOICE_INTENT_STAND:
-        (void)shell::Execute("policy use alpha_stand");
+        if (skills_sit_state() == SKILL_SIT_SITTING) {
+            (void)skills_force("rise");
+        } else {
+            (void)skills_force("stand");
+        }
         (void)sound_play("yes");
         break;
     case VOICE_INTENT_QUACK:
+        (void)emotion_play("yes");
         (void)sound_play("hello");
         break;
     default:
@@ -734,10 +968,16 @@ extern "C" void app_main(void) {
     }
 
     if (sound_init()) {
-        ESP_LOGI(kTag, "sound cues ready (robotd tag names; WAV bank not on P4)");
+        ESP_LOGI(kTag, "sound cues ready (PCM bank + synth fallback)");
     } else {
         ESP_LOGW(kTag, "sound offline");
     }
+
+    (void)emotion_init();
+    (void)skills_init();
+    fall_predictor_init(&g_fall, nullptr);
+    safety_init(&g_safety, nullptr);
+    (void)theremin_init();
 
     if (vision_init()) {
         ESP_LOGI(kTag, "vision frame bus ready backend=%s", vision_backend_name());
@@ -761,6 +1001,10 @@ extern "C" void app_main(void) {
 #endif
     } else {
         ESP_LOGW(kTag, "voice control offline");
+    }
+
+    if (imu::StartFastTask()) {
+        ESP_LOGI(kTag, "IMU @200 Hz fast task started");
     }
 
     QMetrics wr, ws;
@@ -788,11 +1032,11 @@ extern "C" void app_main(void) {
     g_shell.RegisterCommand({"policy", "List/use baked policies; gate, bench, loop",
                             "<list|use <name>|test|bench [n]|loop [off]|stats>",
                             CmdPolicy});
-    g_shell.RegisterCommand({"imu",    "Live ICM-42688 SPI readout (tilt the board)",
-                            "",        CmdImu});
+    g_shell.RegisterCommand({"imu", "ICM-42688 SPI; optional 200 Hz fast task",
+                            "[fast [off]|stats]", CmdImu});
     g_shell.RegisterCommand({"servo",  "Servo bus (Feetech/S288): stats, torque off/on",
                             "<stats|on|off>", CmdServoDispatch});
-    g_shell.RegisterCommand({"sound",  "ES8311 play tags; mic record/level",
+    g_shell.RegisterCommand({"sound",  "ES8311 play tags / PCM bank; mic record/level",
                             "<list|tag|record [ms]|level [ms]>", CmdSound});
     g_shell.RegisterCommand({"vision", "Frame bus: status, synthetic grab, detect stub",
                             "<status|grab|detect>", CmdVision});
@@ -800,5 +1044,16 @@ extern "C" void app_main(void) {
                             "<status|grab|inject <scene>|gate>", CmdTof});
     g_shell.RegisterCommand({"voice", "Mic keyword intents (or inject)",
                             "<status|listen [off]|inject <intent>|test>", CmdVoice});
+    g_shell.RegisterCommand({"skill", "robotd-like net scheduler",
+                            "<status|walk|stand|sit|rise|ground_pick|kick|kick_right|roulade|roller>",
+                            CmdSkill});
+    g_shell.RegisterCommand({"emotion", "robotd emotion JSON keyframes + sound",
+                            "<list|play <name>|stop|status>", CmdEmotion});
+    g_shell.RegisterCommand({"theremin", "ToF closeness → tone (robotd theremin)",
+                            "<up|down|status|beep>", CmdTheremin});
+    g_shell.RegisterCommand({"posture", "Tilt/fold posture classify",
+                            "", CmdPosture});
+    g_shell.RegisterCommand({"validate", "50 Hz loop overrun helper",
+                            "", CmdValidate});
     g_shell.Start();
 }
